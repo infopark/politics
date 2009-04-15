@@ -1,10 +1,16 @@
 require 'rake/rdoctask'
 require 'rake/testtask'
+require 'spec/rake/spectask'
 
 desc "Run tests"
 Rake::TestTask.new do |t|
   t.libs << 'test' << 'lib'
   t.test_files = FileList['test/*_test.rb']
+end
+
+desc "Run specs"
+Spec::Rake::SpecTask.new do |t|
+  t.spec_opts = %w(--color)
 end
 
 desc "Create rdoc"

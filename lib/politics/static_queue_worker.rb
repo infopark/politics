@@ -90,20 +90,25 @@ module Politics
       raise ArgumentError, "You must call register_worker before processing!" unless @memcache_client
 
       begin
-        nominate
-        if leader?
-          # Drb thread handles leader duties
-          log.info { "#{@uri} has been elected leader" }
-          relax until_next_iteration
-          initialize_buckets
-        else
-          # Get a bucket from the leader and process it
-          begin
-            bucket_process(*leader.bucket_request, &block)
-          rescue DRb::DRbError => dre
-            log.error { "Error talking to leader: #{dre.message}" }
+        begin
+          nominate
+          if leader?
+            # Drb thread handles leader duties
+            log.info { "#{@uri} has been elected leader" }
             relax until_next_iteration
+            initialize_buckets
+          else
+            # Get a bucket from the leader and process it
+            begin
+              bucket_process(*leader.bucket_request, &block)
+            rescue DRb::DRbError => dre
+              log.error { "Error talking to leader: #{dre.message}" }
+              relax until_next_iteration
+            end
           end
+        rescue MemCache::MemCacheError => e
+          log.error { "Unexpected MemCacheError: #{e.message}" }
+          relax until_next_iteration
         end
       end while loop?
     end
