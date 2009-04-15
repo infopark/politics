@@ -4,7 +4,7 @@ require 'test/unit'
 begin
   gem 'thoughtbot-shoulda', '>=2.0.2'
   require 'shoulda'
-rescue GemError, LoadError => e
+rescue LoadError => e
   puts "Please install shoulda: `sudo gem install thoughtbot-shoulda -s http://gems.github.com`"
 end
 
