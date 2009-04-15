@@ -9,7 +9,7 @@ require 'net/dns/resolv-mdns'
 require 'net/dns/resolv-replace'
 rescue LoadError => e
   puts "Unable to load net-mdns, please run `sudo gem install net-mdns`: #{e.message}"
-  exit(1)  
+  exit(1)
 end
 
 begin
@@ -20,7 +20,7 @@ rescue LoadError => e
 end
 
 module Politics
-  
+
   # The StaticQueueWorker mixin allows a processing daemon to "lease" or checkout
   # a portion of a problem space to ensure no other process is processing that same
   # space at the same time.  The processing space is cut into N "buckets", each of
@@ -57,13 +57,13 @@ module Politics
   # Note: process_bucket never returns i.e. this should be the main loop of your processing daemon.
   #
   module StaticQueueWorker
-    
+
     def self.included(model) #:nodoc:
       model.class_eval do
         attr_accessor :group_name, :iteration_length
       end
     end
-    
+
     # Register this process as able to work on buckets.
     def register_worker(name, bucket_count, config={})
       options = { :iteration_length => 60, :servers => ['127.0.0.1:11211'] }
@@ -77,11 +77,11 @@ module Politics
       @bucket_count = bucket_count
       initialize_buckets
 
-		  register_with_bonjour
-		  
-		  log.info { "Registered #{self} in group #{group_name} at port #{@port}" }
+      register_with_bonjour
+
+      log.info { "Registered #{self} in group #{group_name} at port #{@port}" }
     end
-    
+
     # Fetch a bucket out of the queue and pass it to the given block to be processed.
     #
     # +bucket+::            The bucket number to process, within the range 0...TOTAL_BUCKETS
@@ -95,7 +95,7 @@ module Politics
           # Drb thread handles leader duties
           log.info { "#{@uri} has been elected leader" }
           relax until_next_iteration
-          initialize_buckets          
+          initialize_buckets
         else
           # Get a bucket from the leader and process it
           begin
@@ -107,17 +107,17 @@ module Politics
         end
       end while loop?
     end
-    
+
     def bucket_request
       if leader?
         [@buckets.pop, until_next_iteration]
       else
-        :not_leader
+        [:not_leader, 0]
       end
     end
-    
+
     private
-    
+
     def bucket_process(bucket, sleep_time)
       case bucket
       when nil
@@ -133,12 +133,12 @@ module Politics
         log.info { "#{@uri} is processing #{bucket}"}
         yield bucket
       end
-    end      
-    
+    end
+
     def log
       @logger ||= Logger.new(STDOUT)
     end
-    
+
     def initialize_buckets
       @buckets.clear
       @bucket_count.times { |idx| @buckets << idx }
@@ -147,7 +147,7 @@ module Politics
     def replicas
       @replicas ||= []
     end
-    
+
     def leader
       name = leader_uri
       repl = nil
@@ -162,39 +162,39 @@ module Politics
       end
       repl
     end
-    
+
     def until_next_iteration
       left = iteration_length - (Time.now - @nominated_at)
       left > 0 ? left : 0
     end
-    
+
     def loop?
       true
     end
-    
+
     def token
       "#{group_name}_token"
     end
-    
+
     def cleanup
       at_exit do
         @memcache_client.delete(token) if leader?
       end
     end
-    
+
     def pause_until_expiry(elapsed)
       pause_time = (iteration_length - elapsed).to_f
       if pause_time > 0
-        relax(pause_time) 
+        relax(pause_time)
       else
         raise ArgumentError, "Negative iteration time left.  Assuming the worst and exiting... #{iteration_length}/#{elapsed}"
       end
     end
-    
+
     def relax(time)
       sleep time
     end
-    
+
     # Nominate ourself as leader by contacting the memcached server
     # and attempting to add the token with our name attached.
     def nominate
@@ -206,7 +206,7 @@ module Politics
     def leader_uri
       @leader_uri ||= @memcache_client.get(token)
     end
-    
+
     # Check to see if we are leader by looking at the process name
     # associated with the token.
     def leader?
@@ -223,26 +223,26 @@ module Politics
       yield
       Time.now - a
     end
-    
-    
-		def register_with_bonjour
-		  server = DRb.start_service(nil, self)
-		  @uri = DRb.uri
-		  @port = URI.parse(DRb.uri).port
 
-		  # Register our DRb server with Bonjour.
-      handle = Net::DNS::MDNSSD.register("#{self.group_name}-#{local_ip}-#{$$}", 
+
+    def register_with_bonjour
+      server = DRb.start_service(nil, self)
+      @uri = DRb.uri
+      @port = URI.parse(DRb.uri).port
+
+      # Register our DRb server with Bonjour.
+      handle = Net::DNS::MDNSSD.register("#{self.group_name}-#{local_ip}-#{$$}",
           "_#{group_name}._tcp", 'local', @port)
-          
-      # ['INT', 'TERM'].each { |signal| 
+
+      # ['INT', 'TERM'].each { |signal|
       #   trap(signal) do
       #     handle.stop
       #     server.stop_service
       #   end
       # }
-	  end
-		
-		def bonjour_scan
+    end
+
+    def bonjour_scan
       Net::DNS::MDNSSD.browse("_#{group_name}._tcp") do |b|
         Net::DNS::MDNSSD.resolve(b.name, b.type) do |r|
           drburl = "druby://#{r.target}:#{r.port}"
@@ -250,19 +250,19 @@ module Politics
           yield replica
         end
       end
-	  end
-	  
+    end
+
     # http://coderrr.wordpress.com/2008/05/28/get-your-local-ip-address/
     def local_ip
       orig, Socket.do_not_reverse_lookup = Socket.do_not_reverse_lookup, true # turn off reverse DNS resolution temporarily
- 
+
       UDPSocket.open do |s|
         s.connect '64.233.187.99', 1
         IPAddr.new(s.addr.last).to_i
       end
     ensure
       Socket.do_not_reverse_lookup = orig
-    end	  
-    
+    end
+
   end
 end
