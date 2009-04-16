@@ -66,20 +66,23 @@ module Politics
 
     # Register this process as able to work on buckets.
     def register_worker(name, bucket_count, config={})
-      options = { :iteration_length => 60, :servers => ['127.0.0.1:11211'] }
+      options = {
+            :iteration_length => 60,
+            :servers => ['127.0.0.1:11211']
+          }
       options.merge!(config)
 
       self.group_name = name
       self.iteration_length = options[:iteration_length]
+      @nominated_at = Time.now - self.iteration_length
       @memcache_client = client_for(Array(options[:servers]))
 
       @buckets = []
       @bucket_count = bucket_count
-      initialize_buckets
 
       register_with_bonjour
-
-      log.info { "Registered #{self} in group #{group_name} at port #{@port}" }
+      log.progname = @uri
+      log.info { "Registered in group #{group_name} at port #{@port}" }
     end
 
     # Fetch a bucket out of the queue and pass it to the given block to be processed.
@@ -94,9 +97,19 @@ module Politics
           nominate
           if leader?
             # Drb thread handles leader duties
-            log.info { "#{@uri} has been elected leader" }
-            relax until_next_iteration
+            log.info { "has been elected leader" }
             initialize_buckets
+            # keeping leader state as long as buckets are available by renominating before
+            # nomination times out
+            while !@buckets.empty? do
+              log.debug { "relaxes half the time until next iteration" }
+              relax(until_next_iteration / 2)
+              log.debug { "renew nomination too keep the hat and finish the work" }
+              @memcache_client.set(token, @uri, iteration_length)
+              @nominated_at = Time.now
+              log.error { "tried to staying leader but failed" } unless leader?
+            end
+            relax until_next_iteration
           else
             # Get a bucket from the leader and process it
             begin
@@ -121,6 +134,11 @@ module Politics
       end
     end
 
+    def until_next_iteration
+      left = iteration_length - (Time.now - @nominated_at)
+      left > 0 ? left : 0
+    end
+
     private
 
     def bucket_process(bucket, sleep_time)
@@ -135,7 +153,7 @@ module Politics
         relax 1
         @leader_uri = nil
       else
-        log.info { "#{@uri} is processing #{bucket}"}
+        log.info { "processing #{bucket}" }
         yield bucket
       end
     end
@@ -166,11 +184,6 @@ module Politics
         end
       end
       repl
-    end
-
-    def until_next_iteration
-      left = iteration_length - (Time.now - @nominated_at)
-      left > 0 ? left : 0
     end
 
     def loop?
