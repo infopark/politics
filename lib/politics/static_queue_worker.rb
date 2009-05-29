@@ -60,7 +60,7 @@ module Politics
 
     def self.included(model) #:nodoc:
       model.class_eval do
-        attr_accessor :group_name, :iteration_length
+        attr_accessor :group_name, :iteration_length, :uri
       end
     end
 
@@ -117,7 +117,7 @@ module Politics
             # Get a bucket from the leader and process it
             begin
               log.debug "getting bucket request from leader (#{leader_uri}) and processing it"
-              bucket_process(*leader.bucket_request, &block)
+              bucket_process(*leader.bucket_request(uri), &block)
             rescue DRb::DRbError => dre
               log.error { "Error talking to leader: #{dre.message}" }
               relax until_next_iteration
@@ -130,14 +130,18 @@ module Politics
       end while loop?
     end
 
-    def bucket_request
+    def bucket_request(requestor_uri)
       if leader?
         log.debug "delivering bucket request"
-        [@buckets.pop, until_next_iteration]
+        next_bucket requestor_uri
       else
         log.debug "received request for bucket but am not leader - delivering :not_leader"
         [:not_leader, 0]
       end
+    end
+
+    def next_bucket(requestor_uri)
+      [@buckets.pop, until_next_iteration]
     end
 
     def until_next_iteration

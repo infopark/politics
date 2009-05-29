@@ -13,7 +13,7 @@ class Worker
 
   def start
     process_bucket do |bucket|
-      sleep 1
+      sleep 0.1
     end
   end
 end
@@ -31,9 +31,14 @@ describe Worker do
     @worker.until_next_iteration.should == 0
   end
 
+  it "should give access to the uri" do
+    @worker.uri.should =~ %r(^druby://)
+  end
+
   describe Worker, "when processing bucket" do
     before do
       @worker.stub!(:until_next_iteration).and_return 666
+      @worker.stub!(:nominate)
       @worker.should_receive(:loop?).and_return true, true, true, false
     end
 
@@ -49,6 +54,43 @@ describe Worker do
       @worker.should_receive(:relax).with(666).exactly(4).times
 
       @worker.start
+    end
+
+    describe "as follower" do
+      before do
+        @worker.stub!(:leader?).and_return false
+        @worker.stub!(:leader_uri).and_return "the leader"
+      end
+
+      it "should get the bucket to process from the leader at every iteration" do
+        @worker.stub!(:uri).and_return("my uri")
+        @worker.should_receive(:leader).exactly(4).times.and_return(leader = mock('leader'))
+        leader.should_receive(:bucket_request).with("my uri").exactly(4).times.and_return([1, 2])
+        @worker.start
+      end
+    end
+  end
+
+  describe Worker, "when handling a bucket request" do
+    describe "as leader" do
+      before do
+        @worker.stub!(:leader?).and_return true
+      end
+
+      it "should deliver the bucket" do
+        @worker.should_receive(:next_bucket).with("requestor").and_return "the bucket"
+        @worker.bucket_request("requestor").should == "the bucket"
+      end
+    end
+
+    describe "as follower" do
+      before do
+        @worker.stub!(:leader?).and_return false
+      end
+
+      it "should deliver the :not_leader bucket" do
+        @worker.bucket_request("requestor")[0].should == :not_leader
+      end
     end
   end
 end
