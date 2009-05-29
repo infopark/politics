@@ -76,6 +76,8 @@ module Politics
       self.iteration_length = options[:iteration_length]
       @nominated_at = Time.now - self.iteration_length
       @memcache_client = client_for(Array(options[:servers]))
+      # FIXME: Tests
+      @domain = options[:domain]
 
       @buckets = []
       @bucket_count = bucket_count
@@ -89,6 +91,7 @@ module Politics
     #
     # +bucket+::            The bucket number to process, within the range 0...TOTAL_BUCKETS
     def process_bucket(&block)
+      log.debug "start bucket processing"
       raise ArgumentError, "process_bucket requires a block!" unless block_given?
       raise ArgumentError, "You must call register_worker before processing!" unless @memcache_client
 
@@ -113,6 +116,7 @@ module Politics
           else
             # Get a bucket from the leader and process it
             begin
+              log.debug "getting bucket request from leader (#{leader_uri}) and processing it"
               bucket_process(*leader.bucket_request, &block)
             rescue DRb::DRbError => dre
               log.error { "Error talking to leader: #{dre.message}" }
@@ -128,8 +132,10 @@ module Politics
 
     def bucket_request
       if leader?
+        log.debug "delivering bucket request"
         [@buckets.pop, until_next_iteration]
       else
+        log.debug "received request for bucket but am not leader - delivering :not_leader"
         [:not_leader, 0]
       end
     end
@@ -172,18 +178,25 @@ module Politics
     end
 
     def leader
+      log.debug "trying to get the leader (#{leader_uri})"
       name = leader_uri
       repl = nil
-      while replicas.empty? or repl == nil
+      log.debug "replicas: #{replicas}"
+      loops = 0
+      while loops < 10 and (replicas.empty? or repl == nil)
         repl = replicas.detect { |replica| replica.__drburi == name }
+        log.debug "repl: #{repl && repl.__drburi}"
         unless repl
+          log.debug "scan bonjour for other nodes (replicas)"
           relax 1
           bonjour_scan do |replica|
+            log.debug "found replica #{replica.__drburi}"
             replicas << replica
           end
         end
+        loops += 1
       end
-      repl
+      repl || raise(DRb::DRbError.new("Could not contact leader #{leader_uri}"))
     end
 
     def loop?
@@ -216,6 +229,7 @@ module Politics
     # Nominate ourself as leader by contacting the memcached server
     # and attempting to add the token with our name attached.
     def nominate
+      log.debug("try to nominate")
       @memcache_client.add(token, @uri, iteration_length)
       @nominated_at = Time.now
       @leader_uri = nil
@@ -249,8 +263,13 @@ module Politics
       @port = URI.parse(DRb.uri).port
 
       # Register our DRb server with Bonjour.
-      handle = Net::DNS::MDNSSD.register("#{self.group_name}-#{local_ip}-#{$$}",
-          "_#{group_name}._tcp", 'local', @port)
+      name = "#{self.group_name}-#{local_ip}-#{$$}"
+      type = "_#{group_name}._tcp"
+      domain = "local"
+      log.debug "register service #{name} of type #{type} within domain #{domain} at port #{@port}"
+      handle = Net::DNS::MDNSSD.register(name, type, domain, @port) do |reply|
+        log.debug "registered as #{reply.fullname}"
+      end
 
       # ['INT', 'TERM'].each { |signal|
       #   trap(signal) do
@@ -262,10 +281,11 @@ module Politics
 
     def bonjour_scan
       Net::DNS::MDNSSD.browse("_#{group_name}._tcp") do |b|
-        Net::DNS::MDNSSD.resolve(b.name, b.type) do |r|
-          drburl = "druby://#{r.target}:#{r.port}"
-          replica = DRbObject.new(nil, drburl)
-          yield replica
+        Net::DNS::MDNSSD.resolve(b.name, b.type, b.domain) do |r|
+          yield DRbObject.new(nil, "druby://#{r.target}:#{r.port}")
+          unless !@domain || r.target =~ /\.#{@domain}$/
+            yield DRbObject.new(nil, "druby://#{r.target}.#{@domain}:#{r.port}")
+          end
         end
       end
     end
