@@ -75,6 +75,7 @@ module Politics
       self.group_name = name
       self.iteration_length = options[:iteration_length]
       @memcache_client = client_for(Array(options[:servers]))
+      @nominated_at = Time.now
       # FIXME: Tests
       @domain = options[:domain]
 
@@ -95,6 +96,11 @@ module Politics
       raise ArgumentError, "You must call register_worker before processing!" unless @memcache_client
 
       begin
+        begin
+          log.debug "self is alive: #{DRbObject.new(nil, uri).alive?}"
+        rescue Exception => e
+          log.error "Error while trying to reach self via drb: #{e.message}"
+        end
         begin
           nominate
           if leader?
@@ -148,6 +154,10 @@ module Politics
       left > 0 ? left : 0
     end
 
+    def alive?
+      true
+    end
+
     private
 
     def bucket_process(bucket, sleep_time)
@@ -181,25 +191,7 @@ module Politics
     end
 
     def leader
-      log.debug "trying to get the leader (#{leader_uri})"
-      name = leader_uri
-      repl = nil
-      log.debug "replicas: #{replicas}"
-      loops = 0
-      while loops < 10 and (replicas.empty? or repl == nil)
-        repl = replicas.detect { |replica| replica.__drburi == name }
-        log.debug "repl: #{repl && repl.__drburi}"
-        unless repl
-          log.debug "scan bonjour for other nodes (replicas)"
-          relax 1
-          bonjour_scan do |replica|
-            log.debug "found replica #{replica.__drburi}"
-            replicas << replica
-          end
-        end
-        loops += 1
-      end
-      repl || raise(DRb::DRbError.new("Could not contact leader #{leader_uri}"))
+      DRbObject.new(nil, leader_uri)
     end
 
     def loop?
@@ -282,17 +274,6 @@ module Politics
       # }
     end
 
-    def bonjour_scan
-      Net::DNS::MDNSSD.browse("_#{group_name}._tcp") do |b|
-        Net::DNS::MDNSSD.resolve(b.name, b.type, b.domain) do |r|
-          yield DRbObject.new(nil, "druby://#{r.target}:#{r.port}")
-          unless !@domain || r.target =~ /\.#{@domain}$/
-            yield DRbObject.new(nil, "druby://#{r.target}.#{@domain}:#{r.port}")
-          end
-        end
-      end
-    end
-
     # http://coderrr.wordpress.com/2008/05/28/get-your-local-ip-address/
     def local_ip
       orig, Socket.do_not_reverse_lookup = Socket.do_not_reverse_lookup, true # turn off reverse DNS resolution temporarily
@@ -304,6 +285,5 @@ module Politics
     ensure
       Socket.do_not_reverse_lookup = orig
     end
-
   end
 end

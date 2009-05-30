@@ -27,12 +27,17 @@ describe Worker do
     @worker.until_next_iteration
   end
 
-  it "should return zero for 'until_next_iteration' if nominate was not completed" do
-    @worker.until_next_iteration.should == 0
+  it "should return time to next iteration even if nominate was not completed" do
+    @worker.until_next_iteration.should > 0
+    @worker.until_next_iteration.should <= 10
   end
 
   it "should give access to the uri" do
     @worker.uri.should =~ %r(^druby://)
+  end
+
+  it "should be alive" do
+    @worker.should be_alive
   end
 
   describe Worker, "when processing bucket" do
@@ -43,14 +48,14 @@ describe Worker do
     end
 
     it "should relax until next iteration on MemCache errors during nomination" do
-      @worker.should_receive(:nominate).at_least(1).and_raise MemCache::MemCacheError.new("Buh!")
+      @worker.should_receive(:nominate).exactly(4).and_raise MemCache::MemCacheError.new("Buh!")
       @worker.should_receive(:relax).with(666).exactly(4).times
 
       @worker.start
     end
 
     it "should relax until next iteration on MemCache errors during request for leader" do
-      @worker.should_receive(:leader_uri).at_least(1).and_raise(MemCache::MemCacheError.new("Buh!"))
+      @worker.should_receive(:leader_uri).exactly(4).and_raise(MemCache::MemCacheError.new("Buh!"))
       @worker.should_receive(:relax).with(666).exactly(4).times
 
       @worker.start
