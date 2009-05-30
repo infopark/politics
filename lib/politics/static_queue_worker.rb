@@ -74,7 +74,6 @@ module Politics
 
       self.group_name = name
       self.iteration_length = options[:iteration_length]
-      @nominated_at = Time.now - self.iteration_length
       @memcache_client = client_for(Array(options[:servers]))
       # FIXME: Tests
       @domain = options[:domain]
@@ -234,8 +233,8 @@ module Politics
     # and attempting to add the token with our name attached.
     def nominate
       log.debug("try to nominate")
-      @memcache_client.add(token, @uri, iteration_length)
       @nominated_at = Time.now
+      @memcache_client.add(token, @uri, iteration_length)
       @leader_uri = nil
     end
 
