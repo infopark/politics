@@ -42,36 +42,50 @@ describe Worker do
 
   describe Worker, "when processing bucket" do
     before do
-      @worker.stub!(:until_next_iteration).and_return 666
-      @worker.stub!(:nominate)
-      @worker.should_receive(:loop?).and_return true, true, true, false
+      DRbObject.stub!(:new).with(nil, @worker.uri).
+          and_return(@worker_drb = mock('drb', :alive? => true))
     end
 
-    it "should relax until next iteration on MemCache errors during nomination" do
-      @worker.should_receive(:nominate).exactly(4).and_raise MemCache::MemCacheError.new("Buh!")
-      @worker.should_receive(:relax).with(666).exactly(4).times
-
-      @worker.start
+    it "should raise an error if it is not alive via Drb" do
+      @worker_drb.stub!(:alive?).and_raise("drb error")
+      lambda {@worker.start}.should raise_error(/cannot reach self/)
+      @worker_drb.stub!(:alive?).and_return(false)
+      lambda {@worker.start}.should raise_error(/not alive/)
     end
 
-    it "should relax until next iteration on MemCache errors during request for leader" do
-      @worker.should_receive(:leader_uri).exactly(4).and_raise(MemCache::MemCacheError.new("Buh!"))
-      @worker.should_receive(:relax).with(666).exactly(4).times
-
-      @worker.start
-    end
-
-    describe "as follower" do
+    describe "" do
       before do
-        @worker.stub!(:leader?).and_return false
-        @worker.stub!(:leader_uri).and_return "the leader"
+        @worker.stub!(:until_next_iteration).and_return 666
+        @worker.stub!(:nominate)
+        @worker.should_receive(:loop?).and_return true, true, true, false
       end
 
-      it "should get the bucket to process from the leader at every iteration" do
-        @worker.stub!(:uri).and_return("my uri")
-        @worker.should_receive(:leader).exactly(4).times.and_return(leader = mock('leader'))
-        leader.should_receive(:bucket_request).with("my uri").exactly(4).times.and_return([1, 2])
+      it "should relax until next iteration on MemCache errors during nomination" do
+        @worker.should_receive(:nominate).exactly(4).and_raise MemCache::MemCacheError.new("Buh!")
+        @worker.should_receive(:relax).with(666).exactly(4).times
+
         @worker.start
+      end
+
+      it "should relax until next iteration on MemCache errors during request for leader" do
+        @worker.should_receive(:leader_uri).exactly(4).and_raise(MemCache::MemCacheError.new("Buh"))
+        @worker.should_receive(:relax).with(666).exactly(4).times
+
+        @worker.start
+      end
+
+      describe "as follower" do
+        before do
+          @worker.stub!(:leader?).and_return false
+          @worker.stub!(:leader_uri).and_return "the leader"
+        end
+
+        it "should get the bucket to process from the leader at every iteration" do
+          @worker.should_receive(:leader).exactly(4).times.and_return(leader = mock('leader'))
+          leader.should_receive(:bucket_request).with(@worker.uri).exactly(4).times.
+              and_return([1, 2])
+          @worker.start
+        end
       end
     end
   end

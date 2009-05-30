@@ -97,9 +97,9 @@ module Politics
 
       begin
         begin
-          log.debug "self is alive: #{DRbObject.new(nil, uri).alive?}"
+          raise "self is not alive via drb" unless DRbObject.new(nil, uri).alive?
         rescue Exception => e
-          log.error "Error while trying to reach self via drb: #{e.message}"
+          raise "cannot reach self via drb: #{e.message}"
         end
         begin
           nominate
