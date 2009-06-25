@@ -88,8 +88,6 @@ module Politics
     end
 
     # Fetch a bucket out of the queue and pass it to the given block to be processed.
-    #
-    # +bucket+::            The bucket number to process, within the range 0...TOTAL_BUCKETS
     def process_bucket(&block)
       log.debug "start bucket processing"
       raise ArgumentError, "process_bucket requires a block!" unless block_given?
@@ -112,6 +110,7 @@ module Politics
             while !@buckets.empty? do
               log.debug { "relaxes half the time until next iteration" }
               relax(until_next_iteration / 2)
+              update_buckets
               log.debug { "renew nomination too keep the hat and finish the work" }
               @memcache_client.set(token, @uri, iteration_length)
               @nominated_at = Time.now
@@ -184,6 +183,9 @@ module Politics
     def initialize_buckets
       @buckets.clear
       @bucket_count.times { |idx| @buckets << idx }
+    end
+
+    def update_buckets
     end
 
     def replicas

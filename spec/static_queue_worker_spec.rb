@@ -74,6 +74,18 @@ describe Worker do
         @worker.start
       end
 
+      describe "as leader" do
+        before do
+          @worker.stub!(:until_next_iteration).and_return 0
+          @worker.stub!(:leader?).and_return true
+        end
+
+        it "should update buckets every now and then" do
+          @worker.should_receive(:update_buckets).exactly(4).times
+          @worker.start
+        end
+      end
+
       describe "as follower" do
         before do
           @worker.stub!(:leader?).and_return false
