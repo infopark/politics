@@ -4,6 +4,8 @@ $:.unshift(File.dirname(__FILE__) + '/../lib')
 require File.dirname(__FILE__) + '/../lib/init'
 Politics::log.level = Logger::FATAL
 
+@@memcache_client = nil
+
 class Worker
   include Politics::StaticQueueWorker
   def initialize
@@ -16,10 +18,15 @@ class Worker
       sleep 0.1
     end
   end
+
+  def client_for(servers)
+    @@memcache_client
+  end
 end
 
 describe Worker do
   before do
+    @@memcache_client = mock('memcache', :set => nil, :get => nil)
     @worker = Worker.new
   end
 
@@ -40,7 +47,7 @@ describe Worker do
     @worker.should be_alive
   end
 
-  describe Worker, "when processing bucket" do
+  describe "when processing bucket" do
     before do
       DRbObject.stub!(:new).with(nil, @worker.uri).
           and_return(@worker_drb = mock('drb', :alive? => true))
@@ -76,12 +83,11 @@ describe Worker do
 
       describe "as leader" do
         before do
-          @worker.stub!(:until_next_iteration).and_return 0
           @worker.stub!(:leader?).and_return true
         end
 
-        it "should update buckets every now and then" do
-          @worker.should_receive(:update_buckets).exactly(4).times
+        it "should do leader duties" do
+          @worker.should_receive(:perform_leader_duties).exactly(4).times
           @worker.start
         end
       end
@@ -102,7 +108,7 @@ describe Worker do
     end
   end
 
-  describe Worker, "when handling a bucket request" do
+  describe "when handling a bucket request" do
     describe "as leader" do
       before do
         @worker.stub!(:leader?).and_return true
@@ -121,6 +127,57 @@ describe Worker do
 
       it "should deliver the :not_leader bucket" do
         @worker.bucket_request("requestor")[0].should == :not_leader
+      end
+    end
+  end
+
+  describe "when performing leader duties" do
+    before do
+      @worker.stub!(:until_next_iteration).and_return 0
+      @worker.stub!(:leader?).and_return true
+      @worker.stub!(:dictatorship_length).and_return 666
+      @worker.stub!(:iteration_length).and_return 5
+    end
+
+    it "should initialize buckets as dictator" do
+      @worker.should_receive(:seize_leadership).with(666).ordered
+      @worker.should_receive(:initialize_buckets).ordered
+      @worker.should_receive(:seize_leadership).ordered
+      @worker.perform_leader_duties
+    end
+
+    describe "as long as there are buckets" do
+      before do
+        @worker.stub!(:buckets).and_return([1], [2], [3], [4], [])
+        @worker.stub!(:relax)
+      end
+
+      it "should update buckets periodically" do
+        @worker.should_receive(:update_buckets).exactly(4).times
+        @worker.perform_leader_duties
+      end
+
+      it "should relax half of the time to the next iteration" do
+        @worker.stub!(:until_next_iteration).and_return(6)
+        @worker.should_receive(:relax).with(3).exactly(4).times
+        @worker.perform_leader_duties
+      end
+
+      it "should seize the leadership periodically" do
+        @worker.should_receive(:seize_leadership).at_least(4).times
+        @worker.perform_leader_duties
+      end
+    end
+
+    describe "if there are no more buckets" do
+      before do
+        @worker.stub!(:buckets).and_return([])
+      end
+
+      it "should relax until next iteration" do
+        @worker.stub!(:until_next_iteration).and_return(6)
+        @worker.should_receive(:relax).with(6).once
+        @worker.perform_leader_duties
       end
     end
   end

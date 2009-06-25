@@ -57,33 +57,28 @@ module Politics
   # Note: process_bucket never returns i.e. this should be the main loop of your processing daemon.
   #
   module StaticQueueWorker
-
-    def self.included(model) #:nodoc:
-      model.class_eval do
-        attr_accessor :group_name, :iteration_length, :uri
-      end
-    end
+    attr_reader :group_name, :iteration_length, :dictatorship_length, :uri, :buckets
 
     # Register this process as able to work on buckets.
-    def register_worker(name, bucket_count, config={})
+    def register_worker(name, bucket_count, config = {})
       options = {
-            :iteration_length => 60,
+            :iteration_length => 10,
             :servers => ['127.0.0.1:11211']
-          }
-      options.merge!(config)
+          }.merge(config)
 
-      self.group_name = name
-      self.iteration_length = options[:iteration_length]
+      @group_name = name
+      @iteration_length = options[:iteration_length]
       @memcache_client = client_for(Array(options[:servers]))
       @nominated_at = Time.now
       # FIXME: Tests
       @domain = options[:domain]
+      @dictatorship_length = options[:dictatorship_length]
 
       @buckets = []
       @bucket_count = bucket_count
 
       register_with_bonjour
-      log.progname = @uri
+      log.progname = uri
       log.info { "Registered in group #{group_name} at port #{@port}" }
     end
 
@@ -102,21 +97,8 @@ module Politics
         begin
           nominate
           if leader?
-            # Drb thread handles leader duties
             log.info { "has been elected leader" }
-            initialize_buckets
-            # keeping leader state as long as buckets are available by renominating before
-            # nomination times out
-            while !@buckets.empty? do
-              log.debug { "relaxes half the time until next iteration" }
-              relax(until_next_iteration / 2)
-              update_buckets
-              log.debug { "renew nomination too keep the hat and finish the work" }
-              @memcache_client.set(token, @uri, iteration_length)
-              @nominated_at = Time.now
-              log.error { "tried to staying leader but failed" } unless leader?
-            end
-            relax until_next_iteration
+            perform_leader_duties
           else
             # Get a bucket from the leader and process it
             begin
@@ -132,6 +114,37 @@ module Politics
           relax until_next_iteration
         end
       end while loop?
+    end
+
+    def as_dictator(&block)
+      duration = dictatorship_length || (iteration_length * 10)
+      log.debug { "become dictator for up to #{duration} seconds" }
+      seize_leadership duration
+      yield
+      raise "lost leadership while being dictator for #{duration} seconds" unless leader?
+      seize_leadership
+    end
+
+    def seize_leadership(duration = nil)
+      @memcache_client.set(token, uri, duration || iteration_length)
+      @nominated_at = Time.now
+    end
+
+    def perform_leader_duties
+      # Drb thread handles requests to leader
+      as_dictator do
+        initialize_buckets
+      end
+      # keeping leader state as long as buckets are available by renominating before nomination
+      # times out
+      while !buckets.empty? do
+        log.debug { "relaxes half the time until next iteration" }
+        relax(until_next_iteration / 2)
+        as_dictator do
+          update_buckets
+        end
+      end
+      relax until_next_iteration
     end
 
     def bucket_request(requestor_uri)
@@ -228,7 +241,7 @@ module Politics
     def nominate
       log.debug("try to nominate")
       @nominated_at = Time.now
-      @memcache_client.add(token, @uri, iteration_length)
+      @memcache_client.add(token, uri, iteration_length)
       @leader_uri = nil
     end
 
@@ -239,7 +252,7 @@ module Politics
     # Check to see if we are leader by looking at the process name
     # associated with the token.
     def leader?
-      until_next_iteration > 0 && @uri == leader_uri
+      until_next_iteration > 0 && uri == leader_uri
     end
 
     # Easy to mock or monkey-patch if another MemCache client is preferred.
@@ -260,7 +273,7 @@ module Politics
       @port = URI.parse(DRb.uri).port
 
       # Register our DRb server with Bonjour.
-      name = "#{self.group_name}-#{local_ip}-#{$$}"
+      name = "#{group_name}-#{local_ip}-#{$$}"
       type = "_#{group_name}._tcp"
       domain = "local"
       log.debug "register service #{name} of type #{type} within domain #{domain} at port #{@port}"
