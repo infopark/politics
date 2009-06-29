@@ -125,9 +125,9 @@ module Politics
       seize_leadership
     end
 
-    def seize_leadership(duration = nil)
-      @memcache_client.set(token, uri, duration || iteration_length)
-      @nominated_at = Time.now
+    def seize_leadership(duration = iteration_length)
+      @memcache_client.set(token, uri, duration)
+      @nominated_at = Time.now + duration - iteration_length
     end
 
     def perform_leader_duties

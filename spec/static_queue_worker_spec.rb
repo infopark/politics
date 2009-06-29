@@ -181,4 +181,47 @@ describe Worker do
       end
     end
   end
+
+  describe "when seizing leadership" do
+    before do
+      @worker.stub!(:uri).and_return('myself')
+      @worker.stub!(:iteration_length).and_return 123
+      @worker.stub!(:token).and_return('dcc-group')
+    end
+
+    it "should set itself to leader" do
+      @@memcache_client.should_receive(:set).with(anything(), 'myself', anything())
+      @worker.seize_leadership
+    end
+
+    it "should seize the leadership for the amount of seconds given" do
+      @@memcache_client.should_receive(:set).with(anything(), anything(), 666)
+      @worker.seize_leadership 666
+    end
+
+    it "should seize the leadership for iteration_length if no duration is given" do
+      @@memcache_client.should_receive(:set).with(anything(), anything(), 123)
+      @worker.seize_leadership
+    end
+
+    it "should seize the leadership for the worker's group" do
+      @@memcache_client.should_receive(:set).with('dcc-group', anything(), anything())
+      @worker.seize_leadership
+    end
+
+    it "should have the next iteration exactly when the seized leadership ends" do
+      now = Time.now
+      Time.stub!(:now).and_return now
+      end_of_leadership = now + 666
+
+      @worker.seize_leadership 666
+      @worker.until_next_iteration.should == 666
+
+      @worker.seize_leadership
+      @worker.until_next_iteration.should == 123
+
+      @worker.seize_leadership 6
+      @worker.until_next_iteration.should == 6
+    end
+  end
 end
