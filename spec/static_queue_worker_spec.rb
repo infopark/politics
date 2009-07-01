@@ -224,4 +224,32 @@ describe Worker do
       @worker.until_next_iteration.should == 6
     end
   end
+
+  describe "when creating next bucket" do
+    it "should set the sleep time to sleep_until_next_bucket_time" do
+      @worker.should_receive(:sleep_until_next_bucket_time).and_return 'the sleep time'
+      @worker.next_bucket('')[1].should == 'the sleep time'
+    end
+  end
+
+  describe "when computing the sleep_until_next_bucket_time" do
+    before do
+      @worker.stub!(:iteration_length).and_return 10
+      @worker.stub!(:until_next_iteration).and_return 6
+    end
+
+    it "should set the sleep time to half the time until_next_iteration" do
+      @worker.sleep_until_next_bucket_time.should == 3
+    end
+
+    it "should set the sleep time to at least 1 second" do
+      @worker.stub!(:until_next_iteration).and_return 0.6
+      @worker.sleep_until_next_bucket_time.should == 1
+    end
+
+    it "should set the sleep time to at most a half of the interation_length" do
+      @worker.stub!(:until_next_iteration).and_return 60
+      @worker.sleep_until_next_bucket_time.should == 5
+    end
+  end
 end

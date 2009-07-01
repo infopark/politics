@@ -158,7 +158,11 @@ module Politics
     end
 
     def next_bucket(requestor_uri)
-      [@buckets.pop, until_next_iteration]
+      [@buckets.pop, sleep_until_next_bucket_time]
+    end
+
+    def sleep_until_next_bucket_time
+      [[until_next_iteration / 2, 1].max, iteration_length / 2].min
     end
 
     def until_next_iteration
