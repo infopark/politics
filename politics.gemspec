@@ -2,11 +2,11 @@
 
 Gem::Specification.new do |s|
   s.name = %q{politics}
-  s.version = "0.2.12"
+  s.version = "0.2.13"
 
   s.required_rubygems_version = Gem::Requirement.new(">= 0") if s.respond_to? :required_rubygems_version=
   s.authors = ["Mike Perham", "Tilo Pr\303\274tz"]
-  s.date = %q{2009-07-01}
+  s.date = %q{2009-07-13}
   s.description = %q{Algorithms and Tools for Distributed Computing in Ruby.}
   s.email = %q{tilo@infopark.de}
   s.extra_rdoc_files = [
