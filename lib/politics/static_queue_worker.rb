@@ -174,6 +174,16 @@ module Politics
       true
     end
 
+    def leader
+      2.times do
+        break if leader_uri
+        log.debug "could not determine leader - relaxing until next iteration"
+        relax until_next_iteration
+      end
+      raise "cannot determine leader" unless leader_uri
+      DRbObject.new(nil, leader_uri)
+    end
+
     private
 
     def bucket_process(bucket, sleep_time)
@@ -203,14 +213,6 @@ module Politics
     end
 
     def update_buckets
-    end
-
-    def replicas
-      @replicas ||= []
-    end
-
-    def leader
-      DRbObject.new(nil, leader_uri)
     end
 
     def loop?
@@ -269,7 +271,6 @@ module Politics
       yield
       Time.now - a
     end
-
 
     def register_with_bonjour
       server = DRb.start_service(nil, self)

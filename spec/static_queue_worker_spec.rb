@@ -22,6 +22,10 @@ class Worker
   def client_for(servers)
     @@memcache_client
   end
+
+  def local_ip
+    IPAddr.new("127.0.0.1")
+  end
 end
 
 describe Worker do
@@ -250,6 +254,41 @@ describe Worker do
     it "should set the sleep time to at most a half of the interation_length" do
       @worker.stub!(:until_next_iteration).and_return 60
       @worker.sleep_until_next_bucket_time.should == 5
+    end
+  end
+
+  describe "when providing leader object" do
+    before do
+      @worker.stub!(:until_next_iteration).and_return 0
+    end
+
+    it "should return a drb object with the leader uri" do
+      @worker.stub!(:leader_uri).and_return("leader's uri")
+      DRbObject.should_receive(:new).with(nil, "leader's uri").and_return "leader"
+      @worker.leader.should == "leader"
+    end
+
+    it "should try three times to get the leader on anarchy (no leader)" do
+      @worker.should_receive(:leader_uri).at_least(3).times.and_return nil
+      begin
+        @worker.leader
+      rescue
+      end
+    end
+
+    it "should raise an error when leader cannot be determined during anarchy" do
+      @worker.stub!(:leader_uri).and_return nil
+      lambda {@worker.leader}.should raise_error(/cannot determine leader/)
+    end
+
+    it "should sleep until next iteration before retrying to get leader" do
+      @worker.stub!(:leader_uri).and_return nil
+      @worker.stub!(:until_next_iteration).and_return 666
+      @worker.should_receive(:relax).with(666).exactly(2).times
+      begin
+        @worker.leader
+      rescue
+      end
     end
   end
 end
