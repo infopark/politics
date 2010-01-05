@@ -6,11 +6,10 @@ Politics::log.level = Logger::FATAL
 
 @@memcache_client = nil
 
-class Worker
+class UninitializedWorker
   include Politics::StaticQueueWorker
   def initialize
     log.level = Logger::FATAL
-    register_worker 'worker', 10, :iteration_length => 10
   end
 
   def start
@@ -28,13 +27,38 @@ class Worker
   end
 end
 
+class Worker < UninitializedWorker
+  def at_exit
+  end
+
+  def initialize
+    super
+    register_worker 'worker', 10, :iteration_length => 10
+  end
+end
+
+describe UninitializedWorker do
+  before do
+    @@memcache_client = mock('memcache', :set => nil, :get => nil)
+    @worker = UninitializedWorker.new
+  end
+
+  it "should register the removal of the leadership as exit handler" do
+    @worker.should_receive(:at_exit).ordered.and_return {|h| h}
+    handler = @worker.register_worker('worker', 10, :iteration_length => 10)
+
+    @worker.should_receive(:cleanup).ordered
+    handler.call
+  end
+end
+
 describe Worker do
   before do
     @@memcache_client = mock('memcache', :set => nil, :get => nil)
     @worker = Worker.new
   end
 
-  it "it should provide 'until_next_iteration' even if nominate was not completed" do
+  it "should provide 'until_next_iteration' even if nominate was not completed" do
     @worker.until_next_iteration
   end
 
@@ -288,6 +312,34 @@ describe Worker do
       begin
         @worker.leader
       rescue
+      end
+    end
+  end
+
+  describe "when cleaning up" do
+    before do
+      @worker.stub!(:token).and_return('dcc-group')
+    end
+
+    describe "as leader" do
+      before do
+        @worker.stub!(:leader?).and_return true
+      end
+
+      it "should remove the leadership token" do
+        @@memcache_client.should_receive(:delete).with('dcc-group')
+        @worker.send(:cleanup)
+      end
+    end
+
+    describe "as follower" do
+      before do
+        @worker.stub!(:leader?).and_return false
+      end
+
+      it "should not remove the leadership token" do
+        @@memcache_client.should_not_receive(:delete)
+        @worker.send(:cleanup)
       end
     end
   end

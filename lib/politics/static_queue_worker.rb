@@ -80,6 +80,9 @@ module Politics
       register_with_bonjour
       log.progname = uri
       log.info { "Registered in group #{group_name} at port #{@port}" }
+      at_exit do
+        cleanup
+      end
     end
 
     # Fetch a bucket out of the queue and pass it to the given block to be processed.
@@ -224,9 +227,7 @@ module Politics
     end
 
     def cleanup
-      at_exit do
-        @memcache_client.delete(token) if leader?
-      end
+      @memcache_client.delete(token) if leader?
     end
 
     def pause_until_expiry(elapsed)
