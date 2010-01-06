@@ -5,7 +5,7 @@ require 'spec/rake/spectask'
 begin
   require 'jeweler'
   Jeweler::Tasks.new do |gemspec|
-    gemspec.name = "politics"
+    gemspec.name = "infopark-politics"
     gemspec.summary = "Algorithms and Tools for Distributed Computing in Ruby."
     gemspec.email = "tilo@infopark.de"
     gemspec.homepage = "http://github.com/infopark/politics"
@@ -18,6 +18,7 @@ begin
     gemspec.files = FileList["{lib,examples}/**/*"]
     gemspec.test_files.exclude 'examples/**/*'
   end
+  Jeweler::GemcutterTasks.new
 rescue LoadError
   puts "Jeweler not available. Install it with: sudo gem install technicalpickles-jeweler -s http://gems.github.com"
 end
