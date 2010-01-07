@@ -124,12 +124,20 @@ describe Worker do
         before do
           @worker.stub!(:leader?).and_return false
           @worker.stub!(:leader_uri).and_return "the leader"
+          @worker.stub!(:leader).and_return(@leader = mock('leader'))
+          @leader.stub!(:bucket_request).and_return([1, 0])
         end
 
         it "should get the bucket to process from the leader at every iteration" do
-          @worker.should_receive(:leader).exactly(4).times.and_return(leader = mock('leader'))
-          leader.should_receive(:bucket_request).with(@worker.uri).exactly(4).times.
+          @worker.should_receive(:leader).exactly(4).times.and_return @leader
+          @leader.should_receive(:bucket_request).with(@worker.uri).exactly(4).times.
               and_return([1, 2])
+          @worker.start
+        end
+
+        it "should exit on :stop bucket" do
+          @leader.should_receive(:bucket_request).ordered.once.and_return([:stop, 0])
+          @worker.should_receive(:exit).with(0).ordered
           @worker.start
         end
       end
@@ -146,6 +154,27 @@ describe Worker do
         @worker.should_receive(:next_bucket).with("requestor").and_return "the bucket"
         @worker.bucket_request("requestor").should == "the bucket"
       end
+
+      describe "when no buckets are left" do
+        before do
+          @worker.stub!(:find_workers).and_return(%w(1 2 3))
+          @worker.populate_followers_to_stop
+          DRbObject.stub(:new).and_return(mock('o', :alive? => true))
+        end
+
+        it "should deliver the :stop bucket if requestor is in followers_to_stop list" do
+          @worker.bucket_request("1").should == [:stop, 0]
+        end
+
+        it "should not deliver the :stop bucket if requestor is not in followers_to_stop list" do
+          @worker.bucket_request("requestor")[0].should be_nil
+        end
+
+        it "should remove the requestor from the followers_to_stop list" do
+          @worker.bucket_request("2")
+          @worker.followers_to_stop.should == %w(1 3)
+        end
+      end
     end
 
     describe "as follower" do
@@ -159,12 +188,27 @@ describe Worker do
     end
   end
 
+  describe "when determining if restart is wanted" do
+    it "should return true if the restart flag is set in memcache" do
+      @@memcache_client.should_receive(:get).with('worker_restart').and_return true
+      @worker.should be_restart_wanted
+    end
+
+    it "should return false if the restart flag is not set in memcache" do
+      @@memcache_client.should_receive(:get).with('worker_restart').and_return false
+      @worker.should_not be_restart_wanted
+      @@memcache_client.should_receive(:get).with('worker_restart').and_return nil
+      @worker.should_not be_restart_wanted
+    end
+  end
+
   describe "when performing leader duties" do
     before do
       @worker.stub!(:until_next_iteration).and_return 0
       @worker.stub!(:leader?).and_return true
       @worker.stub!(:dictatorship_length).and_return 666
       @worker.stub!(:iteration_length).and_return 5
+      @worker.stub!(:find_workers).and_return []
     end
 
     it "should initialize buckets as dictator" do
@@ -195,6 +239,20 @@ describe Worker do
         @worker.should_receive(:seize_leadership).at_least(4).times
         @worker.perform_leader_duties
       end
+
+      it "should seize the leadership periodically even if restart is wanted" do
+        @worker.stub!(:restart_wanted?).and_return true
+        @worker.stub!(:exit)
+        @worker.should_receive(:seize_leadership).at_least(4).times
+        @worker.perform_leader_duties
+      end
+
+      it "should not update buckets if restart is wanted" do
+        @worker.stub!(:restart_wanted?).and_return true
+        @worker.stub!(:exit)
+        @worker.should_not_receive(:update_buckets)
+        @worker.perform_leader_duties
+      end
     end
 
     describe "if there are no more buckets" do
@@ -202,16 +260,54 @@ describe Worker do
         @worker.stub!(:buckets).and_return([])
       end
 
-      it "should relax until next iteration" do
-        @worker.stub!(:until_next_iteration).and_return(6)
-        @worker.should_receive(:relax).with(6).once
+      it "should populate the followers_to_stop list before evaluating it if restart is wanted" do
+        @worker.stub!(:restart_wanted?).and_return true
+        @worker.stub!(:exit)
+        @worker.should_receive(:populate_followers_to_stop).ordered.once
+        @worker.should_receive(:followers_to_stop).ordered.and_return []
         @worker.perform_leader_duties
       end
 
-      it "should call leadership over hook before relaxing" do
-        @worker.should_receive(:handle_leadership_over).ordered
-        @worker.should_receive(:relax).ordered
+      it "should not populate the followers_to_stop list if restart is not wanted" do
+        @worker.stub!(:restart_wanted?).and_return false
+        @worker.should_not_receive(:populate_followers_to_stop)
         @worker.perform_leader_duties
+      end
+
+      describe "as long as there are followers to stop" do
+        before do
+          @worker.stub!(:followers_to_stop).and_return([1], [2], [3], [4], [])
+          @worker.stub!(:relax)
+        end
+
+        it "should relax half of the time to the next iteration" do
+          @worker.stub!(:until_next_iteration).and_return(6)
+          @worker.should_receive(:relax).with(3).exactly(4).times
+          @worker.perform_leader_duties
+        end
+
+        it "should seize the leadership periodically" do
+          @worker.should_receive(:seize_leadership).at_least(4).times
+          @worker.perform_leader_duties
+        end
+      end
+
+      describe "if there are no more followers to stop" do
+        before do
+          @worker.stub!(:followers_to_stop).and_return([])
+        end
+
+        it "should relax until next iteration" do
+          @worker.stub!(:until_next_iteration).and_return(6)
+          @worker.should_receive(:relax).with(6).once
+          @worker.perform_leader_duties
+        end
+
+        it "should exit if restart is wanted" do
+          @worker.stub!(:restart_wanted?).and_return true
+          @worker.should_receive(:exit).with(0)
+          @worker.perform_leader_duties
+        end
       end
     end
   end
@@ -324,16 +420,22 @@ describe Worker do
 
   describe "when cleaning up" do
     before do
-      @worker.stub!(:token).and_return('dcc-group')
+      @worker.stub!(:group_name).and_return('the group')
     end
 
     describe "as leader" do
       before do
         @worker.stub!(:leader?).and_return true
+        @@memcache_client.stub!(:delete)
       end
 
-      it "should remove the leadership token" do
-        @@memcache_client.should_receive(:delete).with('dcc-group')
+      it "should remove the leadership token from memcache" do
+        @@memcache_client.should_receive(:delete).with('the group_token')
+        @worker.send(:cleanup)
+      end
+
+      it "should remove the restart wanted flag from memcache" do
+        @@memcache_client.should_receive(:delete).with('the group_restart')
         @worker.send(:cleanup)
       end
     end
@@ -343,10 +445,75 @@ describe Worker do
         @worker.stub!(:leader?).and_return false
       end
 
-      it "should not remove the leadership token" do
+      it "should not remove anything from memcache" do
         @@memcache_client.should_not_receive(:delete)
         @worker.send(:cleanup)
       end
+    end
+  end
+
+  describe "when finding workers" do
+    before do
+      Net::DNS::MDNSSD.stub(:browse).
+          and_yield(mock('response1', :name => 'w1')).
+          and_yield(mock('response2', :name => 'w2')).
+          and_yield(mock('response3', :name => 'w3')).
+          and_yield(mock('response4', :name => 'w4')).
+          and_return(@browser = mock('browser', :stop => nil))
+      @worker.stub!(:sleep)
+    end
+
+    it "should browse mdns group and return workers found" do
+      @worker.find_workers.should == %w(w1 w2 w3 w4)
+    end
+
+    it "should not add itself to the result list" do
+      @worker.stub!(:uri).and_return('w3')
+      @worker.find_workers.should_not include('w3')
+    end
+
+    it "should stop browser thread after five seconds" do
+      @worker.should_receive(:sleep).with(5).ordered
+      @browser.should_receive(:stop)
+      @worker.find_workers
+    end
+  end
+
+  describe "when populating followers_to_stop" do
+    before do
+      @worker.stub(:find_workers).and_return(%w(a b c))
+      DRbObject.stub(:new).and_return(mock('o', :alive? => true))
+    end
+
+    it "should add all visible workers" do
+      @worker.populate_followers_to_stop
+      @worker.followers_to_stop.should == %w(a b c)
+    end
+  end
+
+  describe "when delivering followers_to_stop" do
+    before do
+      @worker.stub(:find_workers).and_return(%w(a b c))
+      @worker.populate_followers_to_stop
+      DRbObject.stub(:new).and_return(mock('o', :alive? => true))
+    end
+
+    it "should return the actual followers_to_stop" do
+      @worker.followers_to_stop.should == %w(a b c)
+    end
+
+    it "should not deliver entries that are not reachable at the moment" do
+      DRbObject.stub!(:new).with(nil, 'a').and_return(mock('o', :alive? => false))
+      DRbObject.stub!(:new).with(nil, 'b').and_return(x = mock('o'))
+      x.stub(:alive?).and_raise DRb::DRbConnError.new('nix da')
+      @worker.followers_to_stop.should == %w(c)
+    end
+
+    it "should not remove unreachable entries from the list - maybe they reappear" do
+      DRbObject.stub!(:new).with(nil, 'a').and_return(mock('o', :alive? => false))
+      @worker.followers_to_stop.should == %w(b c)
+      DRbObject.stub!(:new).with(nil, 'a').and_return(mock('o', :alive? => true))
+      @worker.followers_to_stop.should == %w(a b c)
     end
   end
 end

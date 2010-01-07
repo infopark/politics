@@ -2,6 +2,7 @@ require 'socket'
 require 'ipaddr'
 require 'uri'
 require 'drb'
+require 'set'
 
 begin
 require 'net/dns/mdns-sd'
@@ -76,6 +77,7 @@ module Politics
 
       @buckets = []
       @bucket_count = bucket_count
+      @followers_to_stop = Set.new
 
       register_with_bonjour
       log.progname = uri
@@ -89,7 +91,9 @@ module Politics
     def process_bucket(&block)
       log.debug "start bucket processing"
       raise ArgumentError, "process_bucket requires a block!" unless block_given?
-      raise ArgumentError, "You must call register_worker before processing!" unless @memcache_client
+      unless @memcache_client
+        raise ArgumentError, "You must call register_worker before processing!"
+      end
 
       begin
         begin
@@ -144,20 +148,36 @@ module Politics
         log.debug { "relaxes half the time until next iteration" }
         relax(until_next_iteration / 2)
         as_dictator do
-          update_buckets
+          update_buckets unless restart_wanted?
         end
       end
-      handle_leadership_over
+      as_dictator() {populate_followers_to_stop} if restart_wanted?
+      # keeping leader state as long as there are followers to stop
+      while !followers_to_stop.empty? do
+        relax(until_next_iteration / 2)
+        seize_leadership
+      end
+      exit 0 if restart_wanted?
       relax until_next_iteration
     end
 
-    def handle_leadership_over
+    def populate_followers_to_stop
+      @followers_to_stop.replace(find_workers)
+    end
+
+    def followers_to_stop
+      @followers_to_stop.select {|u| DRbObject.new(nil, u).alive? rescue DRb::DRbConnError && false}
     end
 
     def bucket_request(requestor_uri)
       if leader?
         log.debug "delivering bucket request"
-        next_bucket requestor_uri
+        bucket_spec = next_bucket(requestor_uri)
+        if !bucket_spec[0] && @followers_to_stop.include?(requestor_uri)
+          bucket_spec = [:stop, 0]
+          @followers_to_stop.delete(requestor_uri)
+        end
+        bucket_spec
       else
         log.debug "received request for bucket but am not leader - delivering :not_leader"
         [:not_leader, 0]
@@ -191,7 +211,21 @@ module Politics
       DRbObject.new(nil, leader_uri)
     end
 
+    def find_workers
+      workers = []
+      browser = Net::DNS::MDNSSD.browse(mdns_type) do |reply|
+        workers << reply.name unless reply.name == uri
+      end
+      sleep 5
+      browser.stop
+      workers
+    end
+
     private
+
+    def restart_wanted?
+      @memcache_client.get(restart_flag)
+    end
 
     def bucket_process(bucket, sleep_time)
       case bucket
@@ -204,6 +238,9 @@ module Politics
         log.warn { "Recv'd NOT_LEADER from peer." }
         relax 1
         @leader_uri = nil
+      when :stop
+        log.info "Received STOP from leader … exiting."
+        exit 0
       else
         log.info { "processing #{bucket}" }
         yield bucket
@@ -230,8 +267,15 @@ module Politics
       "#{group_name}_token"
     end
 
+    def restart_flag
+      "#{group_name}_restart"
+    end
+
     def cleanup
-      @memcache_client.delete(token) if leader?
+      if leader?
+        @memcache_client.delete(token)
+        @memcache_client.delete(restart_flag)
+      end
     end
 
     def pause_until_expiry(elapsed)
@@ -239,7 +283,8 @@ module Politics
       if pause_time > 0
         relax(pause_time)
       else
-        raise ArgumentError, "Negative iteration time left.  Assuming the worst and exiting... #{iteration_length}/#{elapsed}"
+        raise ArgumentError, "Negative iteration time left. " +
+            "Assuming the worst and exiting… #{iteration_length}/#{elapsed}"
       end
     end
 
@@ -277,38 +322,26 @@ module Politics
       Time.now - a
     end
 
+    def mdns_type
+      "_#{group_name}._tcp"
+    end
+
     def register_with_bonjour
       server = DRb.start_service(nil, self)
       @uri = DRb.uri
       @port = URI.parse(DRb.uri).port
 
       # Register our DRb server with Bonjour.
-      name = "#{group_name}-#{local_ip}-#{$$}"
-      type = "_#{group_name}._tcp"
+      name = @uri
       domain = "local"
-      log.debug "register service #{name} of type #{type} within domain #{domain} at port #{@port}"
-      handle = Net::DNS::MDNSSD.register(name, type, domain, @port) do |reply|
+      log.debug "register service #{name} of type #{mdns_type} within domain #{domain} at port #{@port}"
+      handle = Net::DNS::MDNSSD.register(name, mdns_type, domain, @port) do |reply|
         log.debug "registered as #{reply.fullname}"
+        if reply.name != name
+          log.debug "Registered name #{reply.name} differs from requested name #{name} … exiting."
+          handle.stop
+        end
       end
-
-      # ['INT', 'TERM'].each { |signal|
-      #   trap(signal) do
-      #     handle.stop
-      #     server.stop_service
-      #   end
-      # }
-    end
-
-    # http://coderrr.wordpress.com/2008/05/28/get-your-local-ip-address/
-    def local_ip
-      orig, Socket.do_not_reverse_lookup = Socket.do_not_reverse_lookup, true # turn off reverse DNS resolution temporarily
-
-      UDPSocket.open do |s|
-        s.connect '64.233.187.99', 1
-        IPAddr.new(s.addr.last).to_i
-      end
-    ensure
-      Socket.do_not_reverse_lookup = orig
     end
   end
 end
