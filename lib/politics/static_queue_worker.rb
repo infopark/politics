@@ -147,7 +147,11 @@ module Politics
           update_buckets
         end
       end
+      handle_leadership_over
       relax until_next_iteration
+    end
+
+    def handle_leadership_over
     end
 
     def bucket_request(requestor_uri)

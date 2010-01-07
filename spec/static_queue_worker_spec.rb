@@ -207,6 +207,12 @@ describe Worker do
         @worker.should_receive(:relax).with(6).once
         @worker.perform_leader_duties
       end
+
+      it "should call leadership over hook before relaxing" do
+        @worker.should_receive(:handle_leadership_over).ordered
+        @worker.should_receive(:relax).ordered
+        @worker.perform_leader_duties
+      end
     end
   end
 
