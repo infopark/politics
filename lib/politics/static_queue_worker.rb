@@ -214,7 +214,8 @@ module Politics
     def find_workers
       workers = []
       browser = Net::DNS::MDNSSD.browse(mdns_type) do |reply|
-        workers << reply.name unless reply.name == uri
+        worker_uri = reply.name.gsub(/#/, '.')
+        workers << worker_uri unless worker_uri == uri
       end
       sleep 5
       browser.stop
@@ -332,7 +333,7 @@ module Politics
       @port = URI.parse(DRb.uri).port
 
       # Register our DRb server with Bonjour.
-      name = @uri
+      name = @uri.gsub(/\./, '#')
       domain = "local"
       log.debug "register service #{name} of type #{mdns_type} within domain #{domain} at port #{@port}"
       handle = Net::DNS::MDNSSD.register(name, mdns_type, domain, @port) do |reply|
