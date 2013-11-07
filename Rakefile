@@ -1,6 +1,7 @@
+# encoding: utf-8
 require 'rdoc/task'
 require 'rake/testtask'
-require 'spec/rake/spectask'
+require 'rspec/core/rake_task'
 
 begin
   require 'jeweler'
@@ -30,7 +31,7 @@ Rake::TestTask.new do |t|
 end
 
 desc "Run specs"
-Spec::Rake::SpecTask.new do |t|
+RSpec::Core::RakeTask.new do |t|
   t.spec_opts = %w(--color)
 end
 
