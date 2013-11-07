@@ -1,4 +1,4 @@
-require 'rake/rdoctask'
+require 'rdoc/task'
 require 'rake/testtask'
 require 'spec/rake/spectask'
 
@@ -16,7 +16,7 @@ begin
     gemspec.add_dependency 'net-mdns', '>=0.4'
     gemspec.extra_rdoc_files.include "History.rdoc"
     gemspec.files = FileList["{lib,examples}/**/*"]
-    gemspec.test_files.exclude 'examples/**/*'
+    #gemspec.test_files.exclude 'examples/**/*'
   end
   Jeweler::GemcutterTasks.new
 rescue LoadError

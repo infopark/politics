@@ -1,7 +1,8 @@
+# encoding: utf-8
 require 'test_helper'
 
 class TokenWorkerTest < Test::Unit::TestCase
-  
+
   context "token workers" do
     setup do
       @harness = Class.new
@@ -24,7 +25,7 @@ class TokenWorkerTest < Test::Unit::TestCase
       @worker.register_worker('testing')
       assert_equal @worker.class.worker_instance, @worker
     end
-    
+
     should 'not process if they are not leader' do
       @worker.expects(:nominate)
       @worker.expects(:leader?).returns(false)
@@ -57,7 +58,7 @@ class TokenWorkerTest < Test::Unit::TestCase
 
       assert_equal 1, worked
     end
-    
+
     should 'not allow processing without registration' do
       assert_raises ArgumentError do
         @worker.process
@@ -69,7 +70,7 @@ class TokenWorkerTest < Test::Unit::TestCase
 
       foo = @worker.class.new
       foo.register_worker('testing')
-      
+
       assert_raises SecurityError do
         @worker.process
       end

@@ -1,3 +1,4 @@
+# encoding: utf-8
 require 'politics'
 require 'politics/token_worker'
 require 'politics/static_queue_worker'

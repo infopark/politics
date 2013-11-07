@@ -1,3 +1,4 @@
+# encoding: utf-8
 begin
   require 'memcache'
 rescue LoadError => e
@@ -13,8 +14,8 @@ module Politics
   # The worker instance must obtain the leader token before performing some task.
   # We use a memcached server as a central token authority to provide a shared,
   # network-wide view for all processors.  This reliance on a single resource means
-  # if your memcached server goes down, so do the processors.  Oftentimes, 
-  # this is an acceptable trade-off since many high-traffic web sites would 
+  # if your memcached server goes down, so do the processors.  Oftentimes,
+  # this is an acceptable trade-off since many high-traffic web sites would
   # not be useable without memcached running anyhow.
   #
   # Essentially each TokenWorker attempts to elect itself every +:iteration_length+
@@ -46,7 +47,7 @@ module Politics
   #   This can often times be quite beneficial (e.g. leveraging a warm cache from the last iteration)
   #   for performance but is left to the reader to implement.
   module TokenWorker
-    
+
     def self.included(model) #:nodoc:
       model.class_eval do
         attr_accessor :memcache_client, :token, :iteration_length, :worker_name
@@ -59,7 +60,7 @@ module Politics
     # Register this instance as a worker.
     #
     # Options:
-    # +:iteration_length+::    The length of a processing iteration, in seconds.  The 
+    # +:iteration_length+::    The length of a processing iteration, in seconds.  The
     #                          leader's 'reign' lasts for this length of time.
     # +:servers+::             An array of memcached server strings
     def register_worker(name, config={})
@@ -77,7 +78,7 @@ module Politics
 
       cleanup
     end
-    
+
     def process(*args, &block)
       verify_registration
 
@@ -103,18 +104,18 @@ module Politics
           Politics::log.error(me.backtrace.join("\n"))
           self.memcache_client.reset
         end
-        
+
         pause_until_expiry(time)
         reset_state
       end while loop?
     end
 
     private
-    
+
     def reset_state
       @leader = nil
     end
-    
+
     def verify_registration
       unless self.class.worker_instance
         raise ArgumentError, "Cannot call process without first calling register_worker"
@@ -123,30 +124,30 @@ module Politics
         raise SecurityError, "Only one instance of #{self.class} per process.  Another instance was created after this one."
       end
     end
-    
+
     def loop?
       true
     end
-    
+
     def cleanup
       at_exit do
         memcache_client.delete(token) if leader?
       end
     end
-    
+
     def pause_until_expiry(elapsed)
       pause_time = (iteration_length - elapsed).to_f
       if pause_time > 0
-        relax(pause_time) 
+        relax(pause_time)
       else
         raise ArgumentError, "Negative iteration time left.  Assuming the worst and exiting... #{iteration_length}/#{elapsed}"
       end
     end
-    
+
     def relax(time)
       sleep time
     end
-    
+
     # Nominate ourself as leader by contacting the memcached server
     # and attempting to add the token with our name attached.
     # The result will tell us if memcached stored our value and therefore

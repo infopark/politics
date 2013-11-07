@@ -1,3 +1,4 @@
+# encoding: utf-8
 # FIXME oberen Teil in spec_helper.rb auslagern
 require 'rubygems'
 $:.unshift(File.dirname(__FILE__) + '/../lib')

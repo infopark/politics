@@ -1,3 +1,4 @@
+# encoding: utf-8
 #gem 'mperham-politics'
 require 'politics'
 require 'politics/static_queue_worker'
@@ -21,14 +22,14 @@ module Politics
     def initialize
       register_worker 'queue-example', TOTAL_BUCKETS, :iteration_length => 60, :servers => memcached_servers
     end
-    
+
     def start
       process_bucket do |bucket|
         puts "PID #{$$} processing bucket #{bucket}/#{TOTAL_BUCKETS} at #{Time.now}..."
         sleep 1.5
       end
     end
-    
+
     def memcached_servers
       ['127.0.0.1:11211']
     end

@@ -1,3 +1,4 @@
+# encoding: utf-8
 require 'socket'
 require 'ipaddr'
 require 'uri'
@@ -34,10 +35,10 @@ module Politics
   # replica set.  The algorithm is robust in the face of crash failures, but not
   # Byzantine failures.
 	module DiscoverableNode
-	  
+
 	  attr_accessor :group
 	  attr_accessor :coordinator
-	  
+
 		def register(group='foo')
 		  self.group = group
 		  start_drb
@@ -46,11 +47,11 @@ module Politics
 		  sleep 0.5
 		  find_replicas(0)
 		end
-		
+
     def replicas
       @replicas ||= {}
     end
-    
+
     def find_replicas(count)
       replicas.clear if count % 5 == 0
       return if count > 10 # Guaranteed to terminate, but not successfully :-(
@@ -76,14 +77,14 @@ module Politics
       Politics::log.info { "Found #{replicas.size} peers: #{replicas.keys.sort.inspect}" } if count == 0
       replicas
     end
-    
+
     # Called for one peer to introduce itself to another peer.  The caller
     # sends his RID, the responder sends his RID and his list of current peer
     # RIDs.
     def hello(remote_rid)
       [rid, replicas.keys]
     end
-    
+
 	  # A process's Replica ID is its PID + a random 16-bit value.  We don't want
 	  # weigh solely based on PID or IP as that may unduly load one machine.
 	  def rid
@@ -93,25 +94,25 @@ module Politics
     end
 
 		private
-		
+
 		def register_with_bonjour(group)
 		  # Register our DRb server with Bonjour.
-      handle = Net::DNS::MDNSSD.register("#{self.group}-#{local_ip}-#{$$}", 
+      handle = Net::DNS::MDNSSD.register("#{self.group}-#{local_ip}-#{$$}",
           "_#{self.group}._tcp", 'local', @port)
-          
-      ['INT', 'TERM'].each { |signal| 
+
+      ['INT', 'TERM'].each { |signal|
         trap(signal) { handle.stop }
       }
 	  end
-		
+
 		def start_drb
 		  server = DRb.start_service(nil, self)
 		  @port = URI.parse(DRb.uri).port
-      ['INT', 'TERM'].each { |signal| 
+      ['INT', 'TERM'].each { |signal|
         trap(signal) { server.stop_service }
       }
 	  end
-		
+
 		def bonjour_scan
       Net::DNS::MDNSSD.browse("_#{@group}._tcp") do |b|
         Net::DNS::MDNSSD.resolve(b.name, b.type) do |r|
@@ -121,17 +122,17 @@ module Politics
         end
       end
 	  end
-	  
+
     # http://coderrr.wordpress.com/2008/05/28/get-your-local-ip-address/
     def local_ip
       orig, Socket.do_not_reverse_lookup = Socket.do_not_reverse_lookup, true # turn off reverse DNS resolution temporarily
- 
+
       UDPSocket.open do |s|
         s.connect '64.233.187.99', 1
         IPAddr.new(s.addr.last).to_i
       end
     ensure
       Socket.do_not_reverse_lookup = orig
-    end	  
+    end
   end
 end

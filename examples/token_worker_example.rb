@@ -1,3 +1,4 @@
+# encoding: utf-8
 #gem 'mperham-politics'
 require 'politics'
 require 'politics/token_worker'
@@ -16,17 +17,17 @@ require 'politics/token_worker'
 module Politics
   class TokenWorkerExample
     include Politics::TokenWorker
-    
+
     def initialize
       register_worker 'token-example', :iteration_length => 10, :servers => memcached_servers
     end
-    
+
     def start
       process do
         puts "PID #{$$} processing at #{Time.now}..."
       end
     end
-    
+
     def memcached_servers
       ['localhost:11211']
     end
