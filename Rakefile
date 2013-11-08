@@ -31,9 +31,7 @@ Rake::TestTask.new do |t|
 end
 
 desc "Run specs"
-RSpec::Core::RakeTask.new do |t|
-  t.spec_opts = %w(--color)
-end
+RSpec::Core::RakeTask.new
 
 desc "Create rdoc"
 Rake::RDocTask.new do |rd|
