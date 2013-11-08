@@ -223,6 +223,10 @@ module Politics
       workers
     end
 
+    def hostname
+      nil
+    end
+
     private
 
     def restart_wanted?
@@ -329,7 +333,7 @@ module Politics
     end
 
     def register_with_bonjour
-      server = DRb.start_service(nil, self)
+      server = DRb.start_service("druby://#{hostname || ""}:0", self)
       @uri = DRb.uri
       @port = URI.parse(DRb.uri).port
 

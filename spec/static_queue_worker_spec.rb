@@ -44,12 +44,45 @@ describe UninitializedWorker do
     @worker = UninitializedWorker.new
   end
 
-  it "should register the removal of the leadership as exit handler" do
-    @worker.should_receive(:at_exit).ordered.and_return {|h| h}
-    handler = @worker.register_worker('worker', 10, :iteration_length => 10)
+  describe "when initializing" do
+    it "should register the removal of the leadership as exit handler" do
+      @worker.should_receive(:at_exit).ordered.and_return {|h| h}
+      handler = @worker.register_worker('worker', 10, :iteration_length => 10)
 
-    @worker.should_receive(:cleanup).ordered
-    handler.call
+      @worker.should_receive(:cleanup).ordered
+      handler.call
+    end
+
+    it "should have a druby url" do
+      @worker.register_worker('worker', 10, :iteration_length => 10)
+      @worker.uri.should =~ %r|druby://.*:[0-9]+|
+    end
+
+    it "should not have a hostname" do
+      worker.hostname.should be_nil
+    end
+
+    context "when it has a hostname" do
+      before do
+        worker.stub(:hostname).and_return '127.0.0.1'
+      end
+
+      it "should use it" do
+        worker.register_worker('worker', 10, :iteration_length => 10)
+        worker.uri.should =~ %r|druby://127.0.0.1:[0-9]+|
+      end
+    end
+
+    context "when it does not have a hostname" do
+      before do
+        worker.stub(:hostname).and_return nil
+      end
+
+      it "should use the systems hostname" do
+        worker.register_worker('worker', 10, :iteration_length => 10)
+        worker.uri.should =~ %r|druby://localhost:[0-9]+|
+      end
+    end
   end
 end
 
