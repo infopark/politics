@@ -4,11 +4,9 @@ unless requirement.satisfied_by?(Gem::Version.new(Gem::VERSION))
   raise "You need at RubyGems in Version #{requirement} to build this gem."
 end
 
-version = `cd #{File.dirname(__FILE__)} && git describe --tags`.strip.gsub(/^v/, "").gsub(/-.*-/, "p")
-
 Gem::Specification.new do |gem|
   gem.name = "infopark-politics"
-  gem.version = version
+  gem.version = "0.3.3"
   gem.summary = "Algorithms and Tools for Distributed Computing in Ruby."
   gem.description = ""
   gem.authors = ["Mike Perham", "Tilo Prütz"]
