@@ -4,15 +4,7 @@ require 'ipaddr'
 require 'uri'
 require 'drb'
 require 'set'
-
-begin
-require 'net/dns/mdns-sd'
-require 'net/dns/resolv-mdns'
-require 'net/dns/resolv-replace'
-rescue LoadError => e
-  puts "Unable to load net-mdns, please run `sudo gem install net-mdns`: #{e.message}"
-  exit(1)
-end
+require 'logger'
 
 begin
   require 'memcache'
@@ -22,42 +14,6 @@ rescue LoadError => e
 end
 
 module Politics
-
-  # The StaticQueueWorker mixin allows a processing daemon to "lease" or checkout
-  # a portion of a problem space to ensure no other process is processing that same
-  # space at the same time.  The processing space is cut into N "buckets", each of
-  # which is placed in a queue.  Processes then fetch entries from the queue
-  # and process them.  It is up to the application to map the bucket number onto its
-  # specific problem space.
-  #
-  # Note that memcached is used for leader election.  The leader owns the queue during
-  # the iteration period and other peers fetch buckets from the current leader during the
-  # iteration.
-  #
-  # The leader hands out buckets in order.  Once all the buckets have been processed, the
-  # leader returns nil to the processors which causes them to sleep until the end of the
-  # iteration.  Then everyone wakes up, a new leader is elected, and the processing starts
-  # all over again.
-  #
-  # DRb and mDNS are used for peer discovery and communication.
-  #
-  # Example usage:
-  #
-  #  class Analyzer
-  #    include Politics::StaticQueueWorker
-  #    TOTAL_BUCKETS = 16
-  #
-  #    def start
-  #      register_worker(self.class.name, TOTAL_BUCKETS)
-  #      process_bucket do |bucket|
-  #        puts "Analyzing bucket #{bucket} of #{TOTAL_BUCKETS}"
-  #        sleep 5
-  #      end
-  #    end
-  #  end
-  #
-  # Note: process_bucket never returns i.e. this should be the main loop of your processing daemon.
-  #
   module StaticQueueWorker
     attr_reader :group_name, :iteration_length, :dictatorship_length, :uri, :buckets
 
@@ -72,17 +28,15 @@ module Politics
       @iteration_length = options[:iteration_length]
       @memcache_client = client_for(Array(options[:servers]))
       @nominated_at = Time.now
-      # FIXME: Tests
-      @domain = options[:domain]
       @dictatorship_length = options[:dictatorship_length]
 
       @buckets = []
       @bucket_count = bucket_count
       @followers_to_stop = Set.new
 
-      register_with_bonjour
+      start_druby_service
       log.progname = uri
-      log.info { "Registered in group #{group_name} at port #{@port}" }
+      log.info { "Registered in group #{group_name} at #{uri}" }
       at_exit do
         cleanup
       end
@@ -213,18 +167,7 @@ module Politics
     end
 
     def find_workers
-      workers = []
-      browser = Net::DNS::MDNSSD.browse(mdns_type) do |reply|
-        worker_uri = reply.name.gsub(/#/, '.')
-        workers << worker_uri unless worker_uri == uri
-      end
-      sleep 5
-      browser.stop
-      workers
-    end
-
-    def hostname
-      nil
+      raise "Please provide a method ”find_workers” returning a list of all other worker URIs"
     end
 
     private
@@ -328,26 +271,16 @@ module Politics
       Time.now - a
     end
 
-    def mdns_type
-      "_#{group_name}._tcp"
+    def hostname
     end
 
-    def register_with_bonjour
+    def register_service
+    end
+
+    def start_druby_service
       server = DRb.start_service("druby://#{hostname || ""}:0", self)
       @uri = DRb.uri
-      @port = URI.parse(DRb.uri).port
-
-      # Register our DRb server with Bonjour.
-      name = @uri.gsub(/\./, '#')
-      domain = "local"
-      log.debug "register service #{name} of type #{mdns_type} within domain #{domain} at port #{@port}"
-      handle = Net::DNS::MDNSSD.register(name, mdns_type, domain, @port) do |reply|
-        log.debug "registered as #{reply.fullname}"
-        if reply.name != name
-          log.debug "Registered name #{reply.name} differs from requested name #{name} … exiting."
-          handle.stop
-        end
-      end
+      register_service
     end
   end
 end

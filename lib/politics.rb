@@ -1,4 +1,6 @@
 # encoding: utf-8
+require_relative 'politics/static_queue_worker'
+
 module Politics
 
   def self.log=(value)

@@ -1,23 +1,23 @@
 # encoding: utf-8
-requirement = Gem::Requirement.new(">= 1.6.2")
+requirement = Gem::Requirement.new(">= 1.8")
 unless requirement.satisfied_by?(Gem::Version.new(Gem::VERSION))
   raise "You need at RubyGems in Version #{requirement} to build this gem."
 end
 
 Gem::Specification.new do |gem|
   gem.name = "infopark-politics"
-  gem.version = "0.3.3"
+  gem.version = "0.4.0"
   gem.summary = "Algorithms and Tools for Distributed Computing in Ruby."
   gem.description = ""
   gem.authors = ["Mike Perham", "Tilo Prütz"]
   gem.email = "tilo@infopark.de"
   gem.homepage = "http://github.com/infopark/politics"
 
+  gem.required_ruby_version = Gem::Requirement.new('>= 1.9')
   gem.required_rubygems_version = Gem::Requirement.new(">= 1.8")
   gem.extra_rdoc_files = [
-    "History.rdoc",
     "LICENSE",
-    "README.rdoc"
+    "README.md"
   ]
   gem.files = `git ls-files`.split("\n")
   gem.test_files = `git ls-files -- {test,spec,features}/*`.split("\n")
@@ -30,7 +30,6 @@ Gem::Specification.new do |gem|
   gem.add_development_dependency "rubygems-tasks", ">=0.2"
 
   gem.add_runtime_dependency "memcache-client", ">= 1.5.0"
-  gem.add_runtime_dependency "starling-starling", ">= 0.9.8"
-  gem.add_runtime_dependency "net-mdns", ">= 0.4"
+  gem.add_runtime_dependency "starling", ">= 0.9.8"
 end
 

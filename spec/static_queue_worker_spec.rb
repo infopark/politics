@@ -1,9 +1,6 @@
 # encoding: utf-8
-# FIXME oberen Teil in spec_helper.rb auslagern
-require 'rubygems'
-$:.unshift(File.dirname(__FILE__) + '/../lib')
-require File.dirname(__FILE__) + '/../lib/init'
-Politics::log.level = Logger::FATAL
+
+require 'politics'
 
 class UninitializedWorker
   include Politics::StaticQueueWorker
@@ -56,7 +53,7 @@ describe UninitializedWorker do
     end
 
     it "should not have a hostname" do
-      worker.hostname.should be_nil
+      worker.send(:hostname).should be_nil
     end
 
     context "when it has a hostname" do
@@ -474,33 +471,6 @@ describe Worker do
         memcache_client.should_not_receive(:delete)
         worker.send(:cleanup)
       end
-    end
-  end
-
-  describe "when finding workers" do
-    before do
-      Net::DNS::MDNSSD.stub(:browse).
-          and_yield(double('response1', :name => 'w1')).
-          and_yield(double('response2', :name => 'w2')).
-          and_yield(double('response3', :name => 'w3')).
-          and_yield(double('response4', :name => 'w4')).
-          and_return(@browser = double('browser', :stop => nil))
-      worker.stub(:sleep)
-    end
-
-    it "should browse mdns group and return workers found" do
-      worker.find_workers.should == %w(w1 w2 w3 w4)
-    end
-
-    it "should not add itself to the result list" do
-      worker.stub(:uri).and_return('w3')
-      worker.find_workers.should_not include('w3')
-    end
-
-    it "should stop browser thread after five seconds" do
-      worker.should_receive(:sleep).with(5).ordered
-      @browser.should_receive(:stop)
-      worker.find_workers
     end
   end
 
