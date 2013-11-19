@@ -65,7 +65,7 @@ module Politics
             # Get a bucket from the leader and process it
             begin
               log.debug "getting bucket request from leader (#{leader_uri}) and processing it"
-              bucket_process(*leader.bucket_request(uri), &block)
+              bucket_process(*leader.bucket_request(uri, bucket_request_context), &block)
             rescue DRb::DRbError => dre
               log.error { "Error talking to leader: #{dre.message}" }
               relax until_next_iteration
@@ -124,10 +124,10 @@ module Politics
       @followers_to_stop.select {|u| DRbObject.new(nil, u).alive? rescue DRb::DRbConnError && false}
     end
 
-    def bucket_request(requestor_uri)
+    def bucket_request(requestor_uri, context)
       if leader?
         log.debug "delivering bucket request"
-        bucket_spec = next_bucket(requestor_uri)
+        bucket_spec = next_bucket(requestor_uri, context)
         if !bucket_spec[0] && @followers_to_stop.include?(requestor_uri)
           bucket_spec = [:stop, 0]
           @followers_to_stop.delete(requestor_uri)
@@ -139,7 +139,7 @@ module Politics
       end
     end
 
-    def next_bucket(requestor_uri)
+    def next_bucket(requestor_uri, context)
       [@buckets.pop, sleep_until_next_bucket_time]
     end
 
@@ -269,6 +269,9 @@ module Politics
       a = Time.now
       yield
       Time.now - a
+    end
+
+    def bucket_request_context
     end
 
     def hostname

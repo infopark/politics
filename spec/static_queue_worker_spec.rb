@@ -56,6 +56,10 @@ describe UninitializedWorker do
       worker.send(:hostname).should be_nil
     end
 
+    it "should not have a bucket_request_context" do
+      worker.send(:bucket_request_context).should be_nil
+    end
+
     context "when it has a hostname" do
       before do
         worker.stub(:hostname).and_return '127.0.0.1'
@@ -156,8 +160,15 @@ describe Worker do
 
         it "should get the bucket to process from the leader at every iteration" do
           worker.should_receive(:leader).exactly(4).times.and_return @leader
-          @leader.should_receive(:bucket_request).with(worker.uri).exactly(4).times.
+          @leader.should_receive(:bucket_request).with(worker.uri, nil).exactly(4).times.
               and_return([1, 2])
+          worker.start
+        end
+
+        it "should send the bucket_request_context with the bucket request" do
+          worker.stub(:loop?).and_return false
+          worker.stub(:bucket_request_context).and_return "the context"
+          @leader.should_receive(:bucket_request).with(worker.uri, "the context")
           worker.start
         end
 
@@ -179,8 +190,8 @@ describe Worker do
       end
 
       it "should deliver the bucket" do
-        worker.should_receive(:next_bucket).with("requestor").and_return "the bucket"
-        worker.bucket_request("requestor").should == "the bucket"
+        worker.should_receive(:next_bucket).with("requestor", "context").and_return "the bucket"
+        worker.bucket_request("requestor", "context").should == "the bucket"
       end
 
       describe "when no buckets are left" do
@@ -191,15 +202,15 @@ describe Worker do
         end
 
         it "should deliver the :stop bucket if requestor is in followers_to_stop list" do
-          worker.bucket_request("1").should == [:stop, 0]
+          worker.bucket_request("1", nil).should == [:stop, 0]
         end
 
         it "should not deliver the :stop bucket if requestor is not in followers_to_stop list" do
-          worker.bucket_request("requestor")[0].should be_nil
+          worker.bucket_request("requestor", nil)[0].should be_nil
         end
 
         it "should remove the requestor from the followers_to_stop list" do
-          worker.bucket_request("2")
+          worker.bucket_request("2", nil)
           worker.followers_to_stop.should =~ %w(1 3)
         end
       end
@@ -211,7 +222,7 @@ describe Worker do
       end
 
       it "should deliver the :not_leader bucket" do
-        worker.bucket_request("requestor")[0].should == :not_leader
+        worker.bucket_request("requestor", nil)[0].should == :not_leader
       end
     end
   end
@@ -386,7 +397,7 @@ describe Worker do
   describe "when creating next bucket" do
     it "should set the sleep time to sleep_until_next_bucket_time" do
       worker.should_receive(:sleep_until_next_bucket_time).and_return 'the sleep time'
-      worker.next_bucket('')[1].should == 'the sleep time'
+      worker.next_bucket('', nil)[1].should == 'the sleep time'
     end
   end
 
