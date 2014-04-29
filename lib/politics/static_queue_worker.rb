@@ -19,10 +19,9 @@ module Politics
 
     # Register this process as able to work on buckets.
     def register_worker(name, bucket_count, config = {})
-      options = {
-            :iteration_length => 10,
-            :servers => ['127.0.0.1:11211']
-          }.merge(config)
+      options = config.dup
+      options[:iteration_length] ||= 10
+      options[:servers] ||= ['127.0.0.1:11211']
 
       @group_name = name
       @iteration_length = options[:iteration_length]
