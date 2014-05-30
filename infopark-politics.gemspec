@@ -6,7 +6,7 @@ end
 
 Gem::Specification.new do |gem|
   gem.name = "infopark-politics"
-  gem.version = "0.5.2"
+  gem.version = "0.6.0"
   gem.summary = "Algorithms and Tools for Distributed Computing in Ruby."
   gem.description = ""
   gem.authors = ["Mike Perham", "Tilo Prütz"]

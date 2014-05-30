@@ -37,6 +37,7 @@ module Politics
       log.progname = uri
       log.info { "Registered in group #{group_name} at #{uri}" }
       at_exit do
+        internal_cleanup
         cleanup
       end
     end
@@ -219,12 +220,16 @@ module Politics
       "#{group_name}_restart"
     end
 
-    def cleanup
-      log.debug("cleanup: uri: #{uri}, leader_uri: #{leader_uri}, until_next_iteration: #{until_next_iteration}")
+    def internal_cleanup
+      log.debug("uri: #{uri}, leader_uri: #{leader_uri}, until_next_iteration: #{until_next_iteration}")
       if leader?
         @memcache_client.delete(token)
         @memcache_client.delete(restart_flag)
       end
+    end
+
+    def cleanup
+      # for custom use
     end
 
     def pause_until_expiry(elapsed)

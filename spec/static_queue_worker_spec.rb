@@ -43,6 +43,7 @@ describe UninitializedWorker do
       worker.should_receive(:at_exit).ordered.and_return {|&h| h}
       handler = worker.register_worker('worker', 10, :iteration_length => 10)
 
+      worker.should_receive(:internal_cleanup).ordered
       worker.should_receive(:cleanup).ordered
       handler.call
     end
@@ -464,12 +465,12 @@ describe Worker do
 
       it "should remove the leadership token from memcache" do
         memcache_client.should_receive(:delete).with('the group_token')
-        worker.send(:cleanup)
+        worker.send(:internal_cleanup)
       end
 
       it "should remove the restart wanted flag from memcache" do
         memcache_client.should_receive(:delete).with('the group_restart')
-        worker.send(:cleanup)
+        worker.send(:internal_cleanup)
       end
     end
 
@@ -480,7 +481,7 @@ describe Worker do
 
       it "should not remove anything from memcache" do
         memcache_client.should_not_receive(:delete)
-        worker.send(:cleanup)
+        worker.send(:internal_cleanup)
       end
     end
   end
