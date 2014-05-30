@@ -221,7 +221,7 @@ module Politics
 
     def cleanup
       log.debug("cleanup: uri: #{uri}, leader_uri: #{leader_uri}, until_next_iteration: #{until_next_iteration}")
-      if uri == leader_uri
+      if leader?
         @memcache_client.delete(token)
         @memcache_client.delete(restart_flag)
       end
