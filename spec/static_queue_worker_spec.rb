@@ -249,6 +249,16 @@ describe Worker do
       worker.stub(:dictatorship_length).and_return 666
       worker.stub(:iteration_length).and_return 5
       worker.stub(:find_workers).and_return []
+      worker.stub(:initialize_buckets)
+    end
+
+    it "performs before_perform_leader_duties callback" do
+      worker.should_receive(:before_perform_leader_duties)
+      worker.perform_leader_duties
+    end
+
+    it "has a before_perform_leader_duties callback" do
+      worker.send(:before_perform_leader_duties)
     end
 
     it "should initialize buckets as dictator" do

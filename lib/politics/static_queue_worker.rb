@@ -93,6 +93,7 @@ module Politics
     end
 
     def perform_leader_duties
+      before_perform_leader_duties
       # Drb thread handles requests to leader
       as_dictator do
         initialize_buckets
@@ -171,6 +172,9 @@ module Politics
     end
 
     private
+
+    def before_perform_leader_duties
+    end
 
     def restart_wanted?
       @memcache_client.get(restart_flag)
