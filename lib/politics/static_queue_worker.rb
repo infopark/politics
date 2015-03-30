@@ -20,7 +20,6 @@ module Politics
       @group_name = name
       @iteration_length = options[:iteration_length]
       @memcache_client = client_for(Array(options[:servers]))
-      set_iteration_end
       @dictatorship_length = options[:dictatorship_length]
 
       @buckets = []
@@ -52,18 +51,22 @@ module Politics
         end
         begin
           nominate
-          if leader?
-            log.info { "has been elected leader" }
-            perform_leader_duties
-          else
-            # Get a bucket from the leader and process it
-            begin
-              log.debug "getting bucket request from leader (#{leader_uri}) and processing it"
-              bucket_process(*leader.bucket_request(uri, bucket_request_context), &block)
-            rescue DRb::DRbError => dre
-              log.error { "Error talking to leader: #{dre.message}" }
-              relax until_next_iteration
+
+          if leader? && !(@leader_thread && @leader_thread.alive?)
+            unless (@leader_thread && @leader_thread.alive?)
+              @leader_thread = Thread.new do
+                perform_leader_duties
+              end
             end
+          end
+
+          # Get a bucket from the leader and process it
+          begin
+            log.debug "getting bucket request from leader (#{leader_uri}) and processing it"
+            bucket_process(*leader.bucket_request(uri, bucket_request_context), &block)
+          rescue DRb::DRbError => dre
+            log.error { "Error talking to leader: #{dre.message}" }
+            relax until_next_iteration
           end
         rescue Dalli::DalliError => e
           log.error { "Unexpected DalliError: #{e.message}" }
@@ -86,28 +89,28 @@ module Politics
     end
 
     def perform_leader_duties
+      # The DRb thread handles the requests to the leader.
+      # This method performs the bucket managing.
+      log.info { "has been elected leader" }
       before_perform_leader_duties
-      # Drb thread handles requests to leader
-      as_dictator do
-        initialize_buckets
+      # keeping leader state as long as buckets are being initialized
+      as_dictator { initialize_buckets }
+
+      while !buckets.empty?
+        # keeping leader state as long as buckets are available by renominating before
+        # nomination times out
+        as_dictator { update_buckets } unless restart_wanted?
       end
-      # keeping leader state as long as buckets are available by renominating before nomination
-      # times out
-      while !buckets.empty? do
-        log.debug { "relaxes half the time until next iteration" }
-        relax(until_next_iteration / 2)
-        as_dictator do
-          update_buckets unless restart_wanted?
+
+      if restart_wanted?
+        as_dictator { populate_followers_to_stop }
+        # keeping leader state as long as there are followers to stop
+        while !followers_to_stop.empty?
+          relax(until_next_iteration / 2)
+          seize_leadership
         end
+        exit 0
       end
-      as_dictator() {populate_followers_to_stop} if restart_wanted?
-      # keeping leader state as long as there are followers to stop
-      while !followers_to_stop.empty? do
-        relax(until_next_iteration / 2)
-        seize_leadership
-      end
-      exit 0 if restart_wanted?
-      relax until_next_iteration
     end
 
     def populate_followers_to_stop
@@ -142,7 +145,7 @@ module Politics
     end
 
     def until_next_iteration
-      [iteration_end - Time.now, 0].max
+      [(iteration_end || Time.at(0)) - Time.now, 0].max
     end
 
     def alive?
@@ -208,6 +211,8 @@ module Politics
     end
 
     def update_buckets
+      log.debug { "relaxes half the time until next iteration" }
+      relax(until_next_iteration / 2)
     end
 
     def loop?
