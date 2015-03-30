@@ -26,7 +26,7 @@ module Politics
       @group_name = name
       @iteration_length = options[:iteration_length]
       @memcache_client = client_for(Array(options[:servers]))
-      @nominated_at = Time.now
+      set_iteration_end
       @dictatorship_length = options[:dictatorship_length]
 
       @buckets = []
@@ -46,7 +46,7 @@ module Politics
     def process_bucket(&block)
       log.debug "start bucket processing"
       raise ArgumentError, "process_bucket requires a block!" unless block_given?
-      unless @memcache_client
+      unless memcache_client
         raise ArgumentError, "You must call register_worker before processing!"
       end
 
@@ -87,9 +87,8 @@ module Politics
       seize_leadership
     end
 
-    def seize_leadership(duration = iteration_length)
-      @memcache_client.set(token, uri, duration)
-      @nominated_at = Time.now + duration - iteration_length
+    def seize_leadership(*args)
+      start_iteration(*args) {|duration| memcache_client.set(token, uri, duration) }
     end
 
     def perform_leader_duties
@@ -149,8 +148,7 @@ module Politics
     end
 
     def until_next_iteration
-      left = iteration_length - (Time.now - @nominated_at)
-      left > 0 ? left : 0
+      [iteration_end - Time.now, 0].max
     end
 
     def alive?
@@ -173,11 +171,17 @@ module Politics
 
     private
 
+    attr_reader :iteration_end, :memcache_client
+
+    def set_iteration_end(interval = iteration_length)
+      @iteration_end = Time.now + interval
+    end
+
     def before_perform_leader_duties
     end
 
     def restart_wanted?
-      @memcache_client.get(restart_flag)
+      memcache_client.get(restart_flag)
     end
 
     def bucket_process(bucket, sleep_time)
@@ -227,8 +231,8 @@ module Politics
     def internal_cleanup
       log.debug("uri: #{uri}, leader_uri: #{leader_uri}, until_next_iteration: #{until_next_iteration}")
       if leader?
-        @memcache_client.delete(token)
-        @memcache_client.delete(restart_flag)
+        memcache_client.delete(token)
+        memcache_client.delete(restart_flag)
       end
     end
 
@@ -254,13 +258,17 @@ module Politics
     # and attempting to add the token with our name attached.
     def nominate
       log.debug("try to nominate")
-      @nominated_at = Time.now
-      @memcache_client.add(token, uri, iteration_length)
+      start_iteration {|duration| memcache_client.add(token, uri, duration) }
+    end
+
+    def start_iteration(duration = iteration_length)
+      yield duration
+      set_iteration_end(duration)
       @leader_uri = nil
     end
 
     def leader_uri
-      @leader_uri ||= @memcache_client.get(token)
+      @leader_uri ||= memcache_client.get(token)
     end
 
     # Check to see if we are leader by looking at the process name
@@ -290,9 +298,7 @@ module Politics
     end
 
     def start_druby_service
-      server = DRb.start_service("druby://#{hostname || ""}:0", self)
-      @uri = server.uri
-      register_service
+      @uri = DRb.start_service("druby://#{hostname || ""}:0", self).uri
     end
   end
 end
