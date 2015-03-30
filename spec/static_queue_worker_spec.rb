@@ -94,8 +94,7 @@ describe Worker do
   end
 
   it "should return time to next iteration even if nominate was not completed" do
-    worker.until_next_iteration.should > 0
-    worker.until_next_iteration.should <= 10
+    worker.until_next_iteration.should == 0
   end
 
   it "should give access to the uri" do
@@ -143,10 +142,14 @@ describe Worker do
       describe "as leader" do
         before do
           worker.stub(:leader?).and_return true
+          allow(worker).to receive(:bucket_process) { sleep 0.5 }
+          allow(worker).to receive(:relax)
+          allow(worker).to receive(:leader).and_return(double('leader', bucket_request: nil))
         end
 
-        it "should do leader duties" do
-          worker.should_receive(:perform_leader_duties).exactly(4).times
+        it "performs leader duties in a separate thread" do
+          # four iterations of 0.5 seconds → two leader threads of one second
+          worker.should_receive(:perform_leader_duties).exactly(2).times { sleep 1 }
           worker.start
         end
       end
@@ -310,52 +313,56 @@ describe Worker do
         worker.stub(:buckets).and_return([])
       end
 
-      it "should populate the followers_to_stop list before evaluating it if restart is wanted" do
-        worker.stub(:restart_wanted?).and_return true
-        worker.stub(:exit)
-        worker.should_receive(:populate_followers_to_stop).ordered.once
-        worker.should_receive(:followers_to_stop).ordered.and_return []
-        worker.perform_leader_duties
-      end
-
-      it "should not populate the followers_to_stop list if restart is not wanted" do
-        worker.stub(:restart_wanted?).and_return false
-        worker.should_not_receive(:populate_followers_to_stop)
-        worker.perform_leader_duties
-      end
-
-      describe "as long as there are followers to stop" do
+      context "when restart is wanted" do
         before do
-          worker.stub(:followers_to_stop).and_return([1], [2], [3], [4], [])
-          worker.stub(:relax)
+          allow(worker).to receive(:restart_wanted?).and_return true
+          allow(worker).to receive(:exit)
         end
 
-        it "should relax half of the time to the next iteration" do
-          worker.stub(:until_next_iteration).and_return(6)
-          worker.should_receive(:relax).with(3).exactly(4).times
+        it "populates the followers_to_stop list before evaluating it" do
+          worker.should_receive(:populate_followers_to_stop).ordered.once
+          worker.should_receive(:followers_to_stop).ordered.and_return []
           worker.perform_leader_duties
         end
 
-        it "should seize the leadership periodically" do
-          worker.should_receive(:seize_leadership).at_least(4).times
-          worker.perform_leader_duties
+        context "as long as there are followers to stop" do
+          before do
+            worker.stub(:followers_to_stop).and_return([1], [2], [3], [4], [])
+            worker.stub(:relax)
+          end
+
+          it "relaxes half of the time to the next iteration" do
+            worker.stub(:until_next_iteration).and_return(6)
+            worker.should_receive(:relax).with(3).exactly(4).times
+            worker.perform_leader_duties
+          end
+
+          it "seizes the leadership periodically" do
+            worker.should_receive(:seize_leadership).at_least(4).times
+            worker.perform_leader_duties
+          end
+        end
+
+        context "if there are no more followers to stop" do
+          before do
+            worker.stub(:followers_to_stop).and_return([])
+          end
+
+          it "exits" do
+            worker.should_receive(:exit).with(0)
+            worker.perform_leader_duties
+          end
         end
       end
 
-      describe "if there are no more followers to stop" do
+      context "when restart is wanted" do
         before do
-          worker.stub(:followers_to_stop).and_return([])
+          allow(worker).to receive(:restart_wanted?).and_return false
         end
 
-        it "should relax until next iteration" do
-          worker.stub(:until_next_iteration).and_return(6)
-          worker.should_receive(:relax).with(6).once
-          worker.perform_leader_duties
-        end
-
-        it "should exit if restart is wanted" do
-          worker.stub(:restart_wanted?).and_return true
-          worker.should_receive(:exit).with(0)
+        it "does not populate the followers_to_stop list if restart is not wanted" do
+          worker.stub(:restart_wanted?).and_return false
+          worker.should_not_receive(:populate_followers_to_stop)
           worker.perform_leader_duties
         end
       end
