@@ -166,6 +166,10 @@ module Politics
       raise "Please provide a method ”find_workers” returning a list of all other worker URIs"
     end
 
+    def restart_wanted?
+      memcache_client.get(restart_flag)
+    end
+
     private
 
     attr_reader :iteration_end, :memcache_client
@@ -175,10 +179,6 @@ module Politics
     end
 
     def before_perform_leader_duties
-    end
-
-    def restart_wanted?
-      memcache_client.get(restart_flag)
     end
 
     def bucket_process(bucket, sleep_time)
