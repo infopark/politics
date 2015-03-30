@@ -234,16 +234,6 @@ module Politics
       # for custom use
     end
 
-    def pause_until_expiry(elapsed)
-      pause_time = (iteration_length - elapsed).to_f
-      if pause_time > 0
-        relax(pause_time)
-      else
-        raise ArgumentError, "Negative iteration time left. " +
-            "Assuming the worst and exiting… #{iteration_length}/#{elapsed}"
-      end
-    end
-
     def relax(time)
       sleep time
     end
