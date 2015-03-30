@@ -291,7 +291,7 @@ module Politics
 
     def start_druby_service
       server = DRb.start_service("druby://#{hostname || ""}:0", self)
-      @uri = DRb.uri
+      @uri = server.uri
       register_service
     end
   end
