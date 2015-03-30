@@ -127,14 +127,14 @@ describe Worker do
       end
 
       it "should relax until next iteration on MemCache errors during nomination" do
-        worker.should_receive(:nominate).exactly(4).and_raise MemCache::MemCacheError.new("Buh!")
+        worker.should_receive(:nominate).exactly(4).and_raise Dalli::DalliError.new("Buh!")
         worker.should_receive(:relax).with(666).exactly(4).times
 
         worker.start
       end
 
       it "should relax until next iteration on MemCache errors during request for leader" do
-        worker.should_receive(:leader_uri).exactly(4).and_raise(MemCache::MemCacheError.new("Buh"))
+        worker.should_receive(:leader_uri).exactly(4).and_raise(Dalli::DalliError.new("Buh"))
         worker.should_receive(:relax).with(666).exactly(4).times
 
         worker.start

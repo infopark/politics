@@ -29,7 +29,6 @@ Gem::Specification.new do |gem|
   gem.add_development_dependency "rdoc", ">= 3.9"
   gem.add_development_dependency "rubygems-tasks", ">=0.2"
 
-  gem.add_runtime_dependency "memcache-client", ">= 1.5.0"
-  gem.add_runtime_dependency "starling", ">= 0.9.8"
+  gem.add_runtime_dependency "dalli"
 end
 

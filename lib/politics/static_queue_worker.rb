@@ -5,13 +5,7 @@ require 'uri'
 require 'drb'
 require 'set'
 require 'logger'
-
-begin
-  require 'memcache'
-rescue LoadError => e
-  puts "Unable to load memcache client, please run `sudo gem install memcache-client`: #{e.message}"
-  exit(1)
-end
+require 'dalli'
 
 module Politics
   module StaticQueueWorker
@@ -71,8 +65,8 @@ module Politics
               relax until_next_iteration
             end
           end
-        rescue MemCache::MemCacheError => e
-          log.error { "Unexpected MemCacheError: #{e.message}" }
+        rescue Dalli::DalliError => e
+          log.error { "Unexpected DalliError: #{e.message}" }
           relax until_next_iteration
         end
       end while loop?
@@ -279,7 +273,7 @@ module Politics
 
     # Easy to mock or monkey-patch if another MemCache client is preferred.
     def client_for(servers)
-      MemCache.new(servers)
+      Dalli::Client.new(servers)
     end
 
     def time_for(&block)
