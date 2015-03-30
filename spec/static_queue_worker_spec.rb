@@ -79,7 +79,7 @@ describe UninitializedWorker do
 
       it "should use the systems hostname" do
         worker.register_worker('worker', 10, :iteration_length => 10)
-        expect(worker.uri).to match(%r|druby://localhost:[0-9]+|)
+        expect(worker.uri).to match(%r|druby://#{`hostname -f`.chomp}:[0-9]+|)
       end
     end
   end
