@@ -14,6 +14,7 @@ RSpec.configure do |config|
   # the seed, which is printed after each run.
   #     --seed 1234
   config.order = 'random'
+  config.mock_with(:rspec) {|mocks| mocks.verify_partial_doubles = true }
 end
 
 require_relative 'politics'
