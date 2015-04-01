@@ -327,18 +327,19 @@ describe Worker do
 
         context "as long as there are followers to stop" do
           before do
-            allow(worker).to receive(:followers_to_stop).and_return([1], [2], [3], [4], [])
+            # followers_to_stop is called twice due to logging
+            allow(worker).to receive(:followers_to_stop).and_return([1], [1], [2], [2], [])
             allow(worker).to receive(:relax)
           end
 
           it "relaxes half of the time to the next iteration" do
             allow(worker).to receive(:until_next_iteration).and_return(6)
-            expect(worker).to receive(:relax).with(3).exactly(4).times
+            expect(worker).to receive(:relax).with(3).exactly(2).times
             worker.perform_leader_duties
           end
 
           it "seizes the leadership periodically" do
-            expect(worker).to receive(:seize_leadership).at_least(4).times
+            expect(worker).to receive(:seize_leadership).at_least(2).times
             worker.perform_leader_duties
           end
         end

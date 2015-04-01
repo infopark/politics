@@ -103,12 +103,15 @@ module Politics
       end
 
       if restart_wanted?
+        log.info "restart triggered"
         as_dictator { populate_followers_to_stop }
         # keeping leader state as long as there are followers to stop
         while !followers_to_stop.empty?
+          log.info "waiting fo workers to stop: #{followers_to_stop}"
           relax(until_next_iteration / 2)
           seize_leadership
         end
+        log.info "leader exiting due to trigger"
         exit 0
       end
     end
