@@ -129,7 +129,10 @@ module Politics
         log.debug "delivering bucket request"
         bucket_spec = next_bucket(requestor_uri, context)
         if !bucket_spec[0] && @followers_to_stop.include?(requestor_uri)
-          bucket_spec = [:stop, 0]
+          # the leader stops its own process and must not be killed by its worker
+          if requestor_uri != uri
+            bucket_spec = [:stop, 0]
+          end
           @followers_to_stop.delete(requestor_uri)
         end
         bucket_spec

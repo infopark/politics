@@ -191,31 +191,65 @@ describe Worker do
     describe "as leader" do
       before do
         allow(worker).to receive(:leader?).and_return true
+        allow(worker).to receive(:uri).and_return leader
       end
 
-      it "should deliver the bucket" do
+      subject { worker.bucket_request(requestor, context) }
+
+      let(:requestor) { 'requestor' }
+      let(:context) { 'context' }
+      let(:leader) { 'leader' }
+
+      it "delivers the bucket" do
         expect(worker).to receive(:next_bucket).with("requestor", "context").and_return "the bucket"
-        expect(worker.bucket_request("requestor", "context")).to eq("the bucket")
+        expect(subject).to eq("the bucket")
       end
 
       describe "when no buckets are left" do
         before do
-          allow(worker).to receive(:find_workers).and_return(%w(1 2 3))
+          allow(worker).to receive(:find_workers).and_return(["1", "2", "3", leader])
           worker.populate_followers_to_stop
           allow(DRbObject).to receive(:new).and_return(double('o', :alive? => true))
         end
 
-        it "should deliver the :stop bucket if requestor is in followers_to_stop list" do
-          expect(worker.bucket_request("1", nil)).to eq([:stop, 0])
+        context "when requestor is in followers_to_stop list" do
+          context "when requestor is another worker" do
+            let(:requestor) { '2' }
+
+            it "delivers the :stop bucket" do
+              expect(subject).to eq([:stop, 0])
+            end
+
+            it "removes the requestor from the followers_to_stop list" do
+              expect {
+                subject
+              }.to change {
+                worker.followers_to_stop
+              }.from(["1", "2", "3", leader]).to(["1", "3", leader])
+            end
+          end
+
+          context "when requestor is leaders worker" do
+            let(:requestor) { leader }
+
+            it "does not deliver the :stop bucket" do
+              expect(subject[0]).to be_nil
+            end
+
+            it "removes the requestor from the followers_to_stop list" do
+              expect {
+                subject
+              }.to change {
+                worker.followers_to_stop
+              }.from(["1", "2", "3", leader]).to(["1", "2", "3"])
+            end
+          end
         end
 
-        it "should not deliver the :stop bucket if requestor is not in followers_to_stop list" do
-          expect(worker.bucket_request("requestor", nil)[0]).to be_nil
-        end
-
-        it "should remove the requestor from the followers_to_stop list" do
-          worker.bucket_request("2", nil)
-          expect(worker.followers_to_stop).to match_array(%w(1 3))
+        context "when requestor is not in followers_to_stop list" do
+          it "does not deliver the :stop bucket" do
+            expect(subject[0]).to be_nil
+          end
         end
       end
     end
