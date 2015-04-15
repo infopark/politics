@@ -89,33 +89,35 @@ module Politics
     end
 
     def perform_leader_duties
-      # The DRb thread handles the requests to the leader.
-      # This method performs the bucket managing.
-      log.info { "has been elected leader" }
-      before_perform_leader_duties
-      # keeping leader state as long as buckets are being initialized
-      as_dictator { initialize_buckets }
+      with_errors_logged('leader duties') do
+        # The DRb thread handles the requests to the leader.
+        # This method performs the bucket managing.
+        log.info { "has been elected leader" }
+        before_perform_leader_duties
+        # keeping leader state as long as buckets are being initialized
+        as_dictator { initialize_buckets }
 
-      while !buckets.empty?
-        # keeping leader state as long as buckets are available by renominating before
-        # nomination times out
-        as_dictator { update_buckets } unless restart_wanted?
-      end
-
-      if restart_wanted?
-        log.info "restart triggered"
-        as_dictator { populate_followers_to_stop }
-        # keeping leader state as long as there are followers to stop
-        while !followers_to_stop.empty?
-          log.info "waiting fo workers to stop: #{followers_to_stop}"
-          relax(until_next_iteration / 2)
-          seize_leadership
+        while !buckets.empty?
+          # keeping leader state as long as buckets are available by renominating before
+          # nomination times out
+          as_dictator { update_buckets } unless restart_wanted?
         end
-        log.info "leader exiting due to trigger"
-        exit 0
       end
-    rescue StandardError => e
-      log.error("error while performing leader duties: #{e}\n#{e.backtrace.join("\n")}")
+
+      with_errors_logged('termination handling') do
+        if restart_wanted?
+          log.info "restart triggered"
+          as_dictator { populate_followers_to_stop }
+          # keeping leader state as long as there are followers to stop
+          while !followers_to_stop.empty?
+            log.info "waiting fo workers to stop: #{followers_to_stop}"
+            relax(until_next_iteration / 2)
+            seize_leadership
+          end
+          log.info "leader exiting due to trigger"
+          exit 0
+        end
+      end
     end
 
     def populate_followers_to_stop
@@ -181,6 +183,12 @@ module Politics
     private
 
     attr_reader :iteration_end, :memcache_client
+
+    def with_errors_logged(task)
+      yield
+    rescue StandardError => e
+      log.error("error while performing #{task}: #{e}\n#{e.backtrace.join("\n")}")
+    end
 
     def set_iteration_end(interval = iteration_length)
       @iteration_end = Time.now + interval
