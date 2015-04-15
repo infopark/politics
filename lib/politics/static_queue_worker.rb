@@ -114,6 +114,8 @@ module Politics
         log.info "leader exiting due to trigger"
         exit 0
       end
+    rescue Exception => e
+      log.error("error while performing leader duties: #{e}\n#{e.backtrace.join("\n")}")
     end
 
     def populate_followers_to_stop
