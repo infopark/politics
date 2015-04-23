@@ -97,12 +97,14 @@ module Politics
         log.info { "has been elected leader" }
         before_perform_leader_duties
         # keeping leader state as long as buckets are being initialized
-        as_dictator(memcache_client) { initialize_buckets }
+        as_dictator(memcache_client) { initialize_buckets(memcache_client) }
 
         while !buckets.empty?
           # keeping leader state as long as buckets are available by renominating before
           # nomination times out
-          as_dictator(memcache_client) { update_buckets } unless restart_wanted?(memcache_client)
+          unless restart_wanted?(memcache_client)
+            as_dictator(memcache_client) { update_buckets(memcache_client) }
+          end
         end
       end
 
@@ -224,12 +226,12 @@ module Politics
       @logger ||= Logger.new(STDOUT)
     end
 
-    def initialize_buckets
+    def initialize_buckets(memcache_client)
       @buckets.clear
       @bucket_count.times { |idx| @buckets << idx }
     end
 
-    def update_buckets
+    def update_buckets(memcache_client)
       log.debug { "relaxes half the time until next iteration" }
       relax(until_next_iteration / 2)
     end
