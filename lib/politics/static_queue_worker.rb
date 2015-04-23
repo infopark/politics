@@ -19,7 +19,7 @@ module Politics
 
       @group_name = name
       @iteration_length = options[:iteration_length]
-      @memcache_client = client_for(Array(options[:servers]))
+      @memcache_config = Array(options[:servers])
       @dictatorship_length = options[:dictatorship_length]
 
       @buckets = []
@@ -30,7 +30,7 @@ module Politics
       log.progname = uri
       log.info { "Registered in group #{group_name} at #{uri}" }
       at_exit do
-        internal_cleanup
+        internal_cleanup(client_for(memcache_config))
         cleanup
       end
     end
@@ -39,10 +39,11 @@ module Politics
     def process_bucket(&block)
       log.debug "start bucket processing"
       raise ArgumentError, "process_bucket requires a block!" unless block_given?
-      unless memcache_client
+      unless memcache_config
         raise ArgumentError, "You must call register_worker before processing!"
       end
 
+      worker_memcache_client = client_for(memcache_config)
       begin
         begin
           raise "self is not alive via drb" unless DRbObject.new(nil, uri).alive?
@@ -50,20 +51,21 @@ module Politics
           raise "cannot reach self via drb: #{e.message}"
         end
         begin
-          nominate
+          nominate(worker_memcache_client)
 
-          if leader? && !(@leader_thread && @leader_thread.alive?)
+          if leader?(worker_memcache_client) && !(@leader_thread && @leader_thread.alive?)
             unless (@leader_thread && @leader_thread.alive?)
               @leader_thread = Thread.new do
-                perform_leader_duties
+                leader_memcache_client = client_for(memcache_config)
+                perform_leader_duties(leader_memcache_client)
               end
             end
           end
 
           # Get a bucket from the leader and process it
           begin
-            log.debug "getting bucket request from leader (#{leader_uri}) and processing it"
-            bucket_process(*leader.bucket_request(uri, bucket_request_context), &block)
+            log.debug "getting bucket request from leader (#{leader_uri(worker_memcache_client)}) and processing it"
+            bucket_process(*leader(worker_memcache_client).bucket_request(uri, bucket_request_context), &block)
           rescue DRb::DRbError => dre
             log.error { "Error talking to leader: #{dre.message}" }
             relax until_next_iteration
@@ -75,44 +77,44 @@ module Politics
       end while loop?
     end
 
-    def as_dictator(&block)
+    def as_dictator(memcache_client, &block)
       duration = dictatorship_length || (iteration_length * 10)
       log.debug { "become dictator for up to #{duration} seconds" }
-      seize_leadership duration
+      seize_leadership(memcache_client, duration)
       yield
-      raise "lost leadership while being dictator for #{duration} seconds" unless leader?
-      seize_leadership
+      raise "lost leadership while being dictator for #{duration} seconds" unless leader?(memcache_client)
+      seize_leadership(memcache_client)
     end
 
-    def seize_leadership(*args)
+    def seize_leadership(memcache_client, *args)
       start_iteration(*args) {|duration| memcache_client.set(token, uri, duration) }
     end
 
-    def perform_leader_duties
+    def perform_leader_duties(memcache_client)
       with_errors_logged('leader duties') do
         # The DRb thread handles the requests to the leader.
         # This method performs the bucket managing.
         log.info { "has been elected leader" }
         before_perform_leader_duties
         # keeping leader state as long as buckets are being initialized
-        as_dictator { initialize_buckets }
+        as_dictator(memcache_client) { initialize_buckets }
 
         while !buckets.empty?
           # keeping leader state as long as buckets are available by renominating before
           # nomination times out
-          as_dictator { update_buckets } unless restart_wanted?
+          as_dictator(memcache_client) { update_buckets } unless restart_wanted?(memcache_client)
         end
       end
 
       with_errors_logged('termination handling') do
-        if restart_wanted?
+        if restart_wanted?(memcache_client)
           log.info "restart triggered"
-          as_dictator { populate_followers_to_stop }
+          as_dictator(memcache_client) { populate_followers_to_stop }
           # keeping leader state as long as there are followers to stop
           while !followers_to_stop.empty?
             log.info "waiting fo workers to stop: #{followers_to_stop}"
             relax(until_next_iteration / 2)
-            seize_leadership
+            seize_leadership(memcache_client)
           end
           log.info "leader exiting due to trigger"
           exit 0
@@ -129,7 +131,8 @@ module Politics
     end
 
     def bucket_request(requestor_uri, context)
-      if leader?
+      memcache_client = client_for(memcache_config)
+      if leader?(memcache_client)
         log.debug "delivering bucket request"
         bucket_spec = next_bucket(requestor_uri, context)
         if !bucket_spec[0] && @followers_to_stop.include?(requestor_uri)
@@ -162,27 +165,27 @@ module Politics
       true
     end
 
-    def leader
+    def leader(memcache_client)
       2.times do
-        break if leader_uri
+        break if leader_uri(memcache_client)
         log.debug "could not determine leader - relaxing until next iteration"
         relax until_next_iteration
       end
-      raise "cannot determine leader" unless leader_uri
-      DRbObject.new(nil, leader_uri)
+      raise "cannot determine leader" unless leader_uri(memcache_client)
+      DRbObject.new(nil, leader_uri(memcache_client))
     end
 
     def find_workers
       raise "Please provide a method ”find_workers” returning a list of all other worker URIs"
     end
 
-    def restart_wanted?
+    def restart_wanted?(memcache_client)
       memcache_client.get(restart_flag)
     end
 
     private
 
-    attr_reader :iteration_end, :memcache_client
+    attr_reader :iteration_end, :memcache_config
 
     def with_errors_logged(task)
       yield
@@ -243,9 +246,9 @@ module Politics
       "#{group_name}_restart"
     end
 
-    def internal_cleanup
-      log.debug("uri: #{uri}, leader_uri: #{leader_uri}, until_next_iteration: #{until_next_iteration}")
-      if leader?
+    def internal_cleanup(memcache_client)
+      log.debug("uri: #{uri}, leader_uri: #{leader_uri(memcache_client)}, until_next_iteration: #{until_next_iteration}")
+      if leader?(memcache_client)
         memcache_client.delete(token)
         memcache_client.delete(restart_flag)
       end
@@ -261,7 +264,7 @@ module Politics
 
     # Nominate ourself as leader by contacting the memcached server
     # and attempting to add the token with our name attached.
-    def nominate
+    def nominate(memcache_client)
       log.debug("try to nominate")
       start_iteration {|duration| memcache_client.add(token, uri, duration) }
     end
@@ -272,14 +275,14 @@ module Politics
       @leader_uri = nil
     end
 
-    def leader_uri
+    def leader_uri(memcache_client)
       @leader_uri ||= memcache_client.get(token)
     end
 
     # Check to see if we are leader by looking at the process name
     # associated with the token.
-    def leader?
-      until_next_iteration > 0 && uri == leader_uri
+    def leader?(memcache_client)
+      until_next_iteration > 0 && uri == leader_uri(memcache_client)
     end
 
     # Easy to mock or monkey-patch if another MemCache client is preferred.

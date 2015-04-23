@@ -268,14 +268,14 @@ describe Worker do
   describe "when determining if restart is wanted" do
     it "should return true if the restart flag is set in memcache" do
       expect(memcache_client).to receive(:get).with('worker_restart').and_return true
-      expect(worker).to be_restart_wanted
+      expect(worker).to be_restart_wanted(memcache_client)
     end
 
     it "should return false if the restart flag is not set in memcache" do
       expect(memcache_client).to receive(:get).with('worker_restart').and_return false
-      expect(worker).not_to be_restart_wanted
+      expect(worker).not_to be_restart_wanted(memcache_client)
       expect(memcache_client).to receive(:get).with('worker_restart').and_return nil
-      expect(worker).not_to be_restart_wanted
+      expect(worker).not_to be_restart_wanted(memcache_client)
     end
   end
 
@@ -291,7 +291,7 @@ describe Worker do
 
     it "performs before_perform_leader_duties callback" do
       expect(worker).to receive(:before_perform_leader_duties)
-      worker.perform_leader_duties
+      worker.perform_leader_duties(memcache_client)
     end
 
     it "has a before_perform_leader_duties callback" do
@@ -299,10 +299,10 @@ describe Worker do
     end
 
     it "should initialize buckets as dictator" do
-      expect(worker).to receive(:seize_leadership).with(666).ordered
+      expect(worker).to receive(:seize_leadership).with(memcache_client, 666).ordered
       expect(worker).to receive(:initialize_buckets).ordered
       expect(worker).to receive(:seize_leadership).ordered
-      worker.perform_leader_duties
+      worker.perform_leader_duties(memcache_client)
     end
 
     describe "as long as there are buckets" do
@@ -313,32 +313,32 @@ describe Worker do
 
       it "should update buckets periodically" do
         expect(worker).to receive(:update_buckets).exactly(4).times
-        worker.perform_leader_duties
+        worker.perform_leader_duties(memcache_client)
       end
 
       it "should relax half of the time to the next iteration" do
         allow(worker).to receive(:until_next_iteration).and_return(6)
         expect(worker).to receive(:relax).with(3).exactly(4).times
-        worker.perform_leader_duties
+        worker.perform_leader_duties(memcache_client)
       end
 
       it "should seize the leadership periodically" do
         expect(worker).to receive(:seize_leadership).at_least(4).times
-        worker.perform_leader_duties
+        worker.perform_leader_duties(memcache_client)
       end
 
       it "should seize the leadership periodically even if restart is wanted" do
         allow(worker).to receive(:restart_wanted?).and_return true
         allow(worker).to receive(:exit)
         expect(worker).to receive(:seize_leadership).at_least(4).times
-        worker.perform_leader_duties
+        worker.perform_leader_duties(memcache_client)
       end
 
       it "should not update buckets if restart is wanted" do
         allow(worker).to receive(:restart_wanted?).and_return true
         allow(worker).to receive(:exit)
         expect(worker).not_to receive(:update_buckets)
-        worker.perform_leader_duties
+        worker.perform_leader_duties(memcache_client)
       end
     end
 
@@ -356,7 +356,7 @@ describe Worker do
         it "populates the followers_to_stop list before evaluating it" do
           expect(worker).to receive(:populate_followers_to_stop).ordered.once
           expect(worker).to receive(:followers_to_stop).ordered.and_return []
-          worker.perform_leader_duties
+          worker.perform_leader_duties(memcache_client)
         end
 
         context "as long as there are followers to stop" do
@@ -369,12 +369,12 @@ describe Worker do
           it "relaxes half of the time to the next iteration" do
             allow(worker).to receive(:until_next_iteration).and_return(6)
             expect(worker).to receive(:relax).with(3).exactly(2).times
-            worker.perform_leader_duties
+            worker.perform_leader_duties(memcache_client)
           end
 
           it "seizes the leadership periodically" do
             expect(worker).to receive(:seize_leadership).at_least(2).times
-            worker.perform_leader_duties
+            worker.perform_leader_duties(memcache_client)
           end
         end
 
@@ -385,7 +385,7 @@ describe Worker do
 
           it "exits" do
             expect(worker).to receive(:exit).with(0)
-            worker.perform_leader_duties
+            worker.perform_leader_duties(memcache_client)
           end
         end
       end
@@ -398,7 +398,7 @@ describe Worker do
         it "does not populate the followers_to_stop list if restart is not wanted" do
           allow(worker).to receive(:restart_wanted?).and_return false
           expect(worker).not_to receive(:populate_followers_to_stop)
-          worker.perform_leader_duties
+          worker.perform_leader_duties(memcache_client)
         end
       end
     end
@@ -413,22 +413,22 @@ describe Worker do
 
     it "should set itself to leader" do
       expect(memcache_client).to receive(:set).with(anything(), 'myself', anything())
-      worker.seize_leadership
+      worker.seize_leadership(memcache_client)
     end
 
     it "should seize the leadership for the amount of seconds given" do
       expect(memcache_client).to receive(:set).with(anything(), anything(), 666)
-      worker.seize_leadership 666
+      worker.seize_leadership memcache_client, 666
     end
 
     it "should seize the leadership for iteration_length if no duration is given" do
       expect(memcache_client).to receive(:set).with(anything(), anything(), 123)
-      worker.seize_leadership
+      worker.seize_leadership(memcache_client)
     end
 
     it "should seize the leadership for the worker's group" do
       expect(memcache_client).to receive(:set).with('dcc-group', anything(), anything())
-      worker.seize_leadership
+      worker.seize_leadership(memcache_client)
     end
 
     it "should have the next iteration exactly when the seized leadership ends" do
@@ -436,13 +436,13 @@ describe Worker do
       allow(Time).to receive(:now).and_return now
       end_of_leadership = now + 666
 
-      worker.seize_leadership 666
+      worker.seize_leadership memcache_client, 666
       expect(worker.until_next_iteration).to eq(666)
 
-      worker.seize_leadership
+      worker.seize_leadership(memcache_client)
       expect(worker.until_next_iteration).to eq(123)
 
-      worker.seize_leadership 6
+      worker.seize_leadership memcache_client, 6
       expect(worker.until_next_iteration).to eq(6)
     end
   end
@@ -483,24 +483,24 @@ describe Worker do
     it "should return a drb object with the leader uri" do
       allow(worker).to receive(:leader_uri).and_return("leader's uri")
       expect(DRbObject).to receive(:new).with(nil, "leader's uri").and_return "leader"
-      expect(worker.leader).to eq("leader")
+      expect(worker.leader(memcache_client)).to eq("leader")
     end
 
     it "should try three times to get the leader on anarchy (no leader)" do
       expect(worker).to receive(:leader_uri).at_least(3).times.and_return nil
-      worker.leader rescue nil
+      worker.leader(memcache_client) rescue nil
     end
 
     it "should raise an error when leader cannot be determined during anarchy" do
       allow(worker).to receive(:leader_uri).and_return nil
-      expect {worker.leader}.to raise_error(/cannot determine leader/)
+      expect {worker.leader(memcache_client)}.to raise_error(/cannot determine leader/)
     end
 
     it "should sleep until next iteration before retrying to get leader" do
       allow(worker).to receive(:leader_uri).and_return nil
       allow(worker).to receive(:until_next_iteration).and_return 666
       expect(worker).to receive(:relax).with(666).exactly(2).times
-      worker.leader rescue nil
+      worker.leader(memcache_client) rescue nil
     end
   end
 
@@ -517,12 +517,12 @@ describe Worker do
 
       it "should remove the leadership token from memcache" do
         expect(memcache_client).to receive(:delete).with('the group_token')
-        worker.send(:internal_cleanup)
+        worker.send(:internal_cleanup, memcache_client)
       end
 
       it "should remove the restart wanted flag from memcache" do
         expect(memcache_client).to receive(:delete).with('the group_restart')
-        worker.send(:internal_cleanup)
+        worker.send(:internal_cleanup, memcache_client)
       end
     end
 
@@ -533,7 +533,7 @@ describe Worker do
 
       it "should not remove anything from memcache" do
         expect(memcache_client).not_to receive(:delete)
-        worker.send(:internal_cleanup)
+        worker.send(:internal_cleanup, memcache_client)
       end
     end
   end
