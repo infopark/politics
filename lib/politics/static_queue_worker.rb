@@ -56,19 +56,25 @@ module Politics
           if leader?(worker_memcache_client) && !(@leader_thread && @leader_thread.alive?)
             unless (@leader_thread && @leader_thread.alive?)
               @leader_thread = Thread.new do
-                leader_memcache_client = client_for(memcache_config)
-                perform_leader_duties(leader_memcache_client)
+                log.context("leader") do
+                  leader_memcache_client = client_for(memcache_config)
+                  perform_leader_duties(leader_memcache_client)
+                end
               end
             end
           end
 
-          # Get a bucket from the leader and process it
-          begin
-            log.debug "getting bucket request from leader (#{leader_uri(worker_memcache_client)}) and processing it"
-            bucket_process(*leader(worker_memcache_client).bucket_request(uri, bucket_request_context), &block)
-          rescue DRb::DRbError => dre
-            log.error { "Error talking to leader: #{dre.message}" }
-            relax until_next_iteration
+          log.context("worker") do
+            # Get a bucket from the leader and process it
+            begin
+              log.debug "getting bucket request from leader (#{
+                  leader_uri(worker_memcache_client)}) and processing it"
+              bucket_process(*leader(worker_memcache_client).bucket_request(uri,
+                  bucket_request_context), &block)
+            rescue DRb::DRbError => dre
+              log.error { "Error talking to leader: #{dre.message}" }
+              relax until_next_iteration
+            end
           end
         rescue Dalli::DalliError => e
           log.error { "Unexpected DalliError: #{e.message}" }
@@ -133,21 +139,23 @@ module Politics
     end
 
     def bucket_request(requestor_uri, context)
-      memcache_client = client_for(memcache_config)
-      if leader?(memcache_client)
-        log.debug "delivering bucket request"
-        bucket_spec = next_bucket(requestor_uri, context)
-        if !bucket_spec[0] && @followers_to_stop.include?(requestor_uri)
-          # the leader stops its own process and must not be killed by its worker
-          if requestor_uri != uri
-            bucket_spec = [:stop, 0]
+      log.context("drb") do
+        memcache_client = client_for(memcache_config)
+        if leader?(memcache_client)
+          log.debug "delivering bucket request"
+          bucket_spec = next_bucket(requestor_uri, context)
+          if !bucket_spec[0] && @followers_to_stop.include?(requestor_uri)
+            # the leader stops its own process and must not be killed by its worker
+            if requestor_uri != uri
+              bucket_spec = [:stop, 0]
+            end
+            @followers_to_stop.delete(requestor_uri)
           end
-          @followers_to_stop.delete(requestor_uri)
+          bucket_spec
+        else
+          log.debug "received request for bucket but am not leader - delivering :not_leader"
+          [:not_leader, 0]
         end
-        bucket_spec
-      else
-        log.debug "received request for bucket but am not leader - delivering :not_leader"
-        [:not_leader, 0]
       end
     end
 
